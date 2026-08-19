@@ -1,0 +1,15 @@
+{
+  "name": "putzii",
+  "short_name": "putzii",
+  "description": "Minimaler Putzplan — kein Backend, geteilt per Link, Check-in per QR.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f766e",
+  "theme_color": "#0f766e",
+  "lang": "de",
+  "icons": [
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

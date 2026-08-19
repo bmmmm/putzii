@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="putzii Check-in" />
+    <meta name="theme-color" content="#0f766e" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="putzii" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'none';"
+    />
+    <title>putzii – Check-in</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <h1><a href="index.html#uebersicht" class="brand">putzii</a></h1>
+    </header>
+
+    <main>
+      <section id="checkin-root" aria-live="polite"></section>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <noscript><p class="empty-state">putzii braucht JavaScript — es gibt keinen Server, alles passiert lokal im Browser.</p></noscript>
+
+    <script src="helpers.js"></script>
+    <script src="store.js"></script>
+    <script src="model.js"></script>
+    <script src="share.js"></script>
+    <script src="ui-checkin.js"></script>
+    <script src="sw-register.js"></script>
+  </body>
+</html>

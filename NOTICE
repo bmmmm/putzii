@@ -1,0 +1,10 @@
+putzii — minimal serverless cleaning-schedule PWA
+Copyright (C) 2026 bmmmm
+
+Licensed under GPL-3.0-or-later (see LICENSE).
+
+Bundled third-party code:
+
+- qrcodegen.js — QR Code generator library by Project Nayuki
+  https://www.nayuki.io/page/qr-code-generator-library
+  MIT License (header preserved in the file). Vendored verbatim.

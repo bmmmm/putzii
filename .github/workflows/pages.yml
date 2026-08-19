@@ -1,0 +1,43 @@
+# CI template — static site → GitHub Pages. Copy to .github/workflows/ci.yml.
+# Adjust:
+#   - `path:` = the directory to publish (`.` for a flat site, or a build
+#     output dir like `dist`/`public`/`_site`; run the build step first).
+#   - if there is a build step (bundler, SSG), add it before upload-pages-artifact.
+# Enable Pages BEFORE the first push — `gh api -X POST repos/<o>/<r>/pages
+#   -f build_type=workflow` (or Settings → Pages → Source = GitHub Actions).
+#   With Pages off, deploy-pages 404s; and do NOT fix that with
+#   `gh run rerun --failed` — the replay uploads a second github-pages artifact
+#   and the job then aborts on "Multiple artifacts named github-pages".
+#   Dispatch a fresh run instead.
+# Public repos get free GitHub-hosted runners.
+name: pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      # - name: Build            # uncomment + adapt if the site needs a build
+      #   run: pnpm install --frozen-lockfile && pnpm run build
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v5

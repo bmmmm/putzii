@@ -1,0 +1,171 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="putzii — minimaler Putzplan. Kein Backend, kein Server: geteilt per Link, Check-in per QR, alles lokal."
+    />
+    <meta name="theme-color" content="#0f766e" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="putzii" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'none';"
+    />
+    <title>putzii – Putzplan</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="print.css" media="print" />
+  </head>
+  <body>
+    <header class="app-header">
+      <h1><a href="#uebersicht" class="brand">putzii</a></h1>
+      <button id="btn-share-header" class="btn btn-primary btn-small" hidden>
+        Update teilen<span id="share-badge-count" class="badge" hidden></span>
+      </button>
+    </header>
+
+    <div id="banner-pending" class="banner" hidden>
+      <span id="banner-pending-text"></span>
+      <a id="banner-pending-link" class="btn btn-primary btn-small" href="c.html">Jetzt eintragen →</a>
+    </div>
+
+    <nav class="tabs" aria-label="Hauptnavigation">
+      <a href="#uebersicht" data-route="uebersicht">Übersicht</a>
+      <a href="#verlauf" data-route="verlauf">Verlauf</a>
+      <a href="#verwalten" data-route="verwalten" data-hide-in-view-mode>Verwalten</a>
+      <a href="#teilen" data-route="teilen">Teilen</a>
+    </nav>
+
+    <main>
+      <section id="view-uebersicht" hidden>
+        <div id="cards-container" class="cards"></div>
+        <div id="empty-uebersicht" class="empty-state" hidden>
+          <h2>Noch kein Putzplan</h2>
+          <p>
+            Lege unter <a href="#verwalten">Verwalten</a> Bereiche und Personen an —
+            oder öffne den Team-Link, den dir jemand geschickt hat.
+          </p>
+        </div>
+      </section>
+
+      <section id="view-verlauf" hidden>
+        <div class="filter-row">
+          <label for="filter-area">Bereich:</label>
+          <select id="filter-area"><option value="">Alle</option></select>
+        </div>
+        <ul id="history-list" class="history"></ul>
+        <p id="empty-verlauf" class="empty-state" hidden>Noch keine Einträge.</p>
+      </section>
+
+      <section id="view-verwalten" hidden>
+        <h2>Plan</h2>
+        <div class="form-row">
+          <label for="plan-name" class="sr-only">Plan-Name</label>
+          <input id="plan-name" type="text" maxlength="40" placeholder="Plan-Name, z. B. WG Hauptstraße" />
+          <button id="btn-plan-rename" class="btn">Umbenennen</button>
+        </div>
+        <div id="plan-switcher" class="form-row" hidden>
+          <label for="plan-select">Aktiver Plan:</label>
+          <select id="plan-select"></select>
+        </div>
+        <p id="clock-warning" class="warn" hidden></p>
+
+        <h2>Bereiche</h2>
+        <ul id="area-list" class="manage-list"></ul>
+        <div class="form-row">
+          <label for="new-area-name" class="sr-only">Neuer Bereich</label>
+          <input id="new-area-name" type="text" maxlength="40" placeholder="z. B. Küche" />
+          <label for="new-area-interval" class="sr-only">Intervall in Tagen</label>
+          <input id="new-area-interval" type="number" min="1" max="365" value="7" title="Intervall in Tagen" />
+          <button id="btn-area-add" class="btn btn-primary">+ Bereich</button>
+        </div>
+
+        <h2>Personen</h2>
+        <ul id="people-list" class="manage-list"></ul>
+        <div class="form-row">
+          <label for="new-person-name" class="sr-only">Neue Person</label>
+          <input id="new-person-name" type="text" maxlength="40" placeholder="Name" />
+          <button id="btn-person-add" class="btn btn-primary">+ Person</button>
+        </div>
+
+        <h2>Neuer Plan</h2>
+        <div class="form-row">
+          <button id="btn-plan-create" class="btn">Weiteren Plan anlegen</button>
+        </div>
+      </section>
+
+      <section id="view-teilen" hidden>
+        <h2>Teilen</h2>
+        <p id="share-stats" class="muted"></p>
+        <div class="share-actions">
+          <button id="btn-share-team" class="btn btn-primary">Team-Link teilen</button>
+          <button id="btn-share-view" class="btn">Nur-Ansicht-Link teilen</button>
+          <button id="btn-share-qr" class="btn">Team-Link als QR</button>
+        </div>
+        <div id="share-qr-wrap" class="qr-wrap" hidden>
+          <canvas id="share-qr-canvas"></canvas>
+          <p id="share-qr-note" class="muted"></p>
+        </div>
+        <textarea id="share-fallback" class="share-fallback" readonly hidden rows="4"></textarea>
+
+        <h2>Datei</h2>
+        <div class="share-actions">
+          <button id="btn-export-file" class="btn">Plan als Datei exportieren</button>
+          <label class="btn file-label" for="import-file">Datei importieren<input id="import-file" type="file" accept="application/json,.json" hidden /></label>
+        </div>
+        <div id="import-preview" class="banner" hidden>
+          <span id="import-preview-text"></span>
+          <button id="btn-import-apply" class="btn btn-primary btn-small">Übernehmen</button>
+          <button id="btn-import-cancel" class="btn btn-small">Abbrechen</button>
+        </div>
+
+        <h2>QR-Codes für die Bereiche</h2>
+        <p class="muted">Zum Aufhängen vor Ort — scannen öffnet den Check-in.</p>
+        <div class="share-actions">
+          <a href="#qr" class="btn">QR-Druckbogen öffnen</a>
+        </div>
+
+        <div class="honesty-note">
+          <strong>Wer den Link hat, hat den Plan.</strong> Alle Bereiche, alle Namen, der
+          geteilte Verlauf — und kann Einträge hinzufügen und den Link weitergeben. Es gibt
+          keine Anmeldung: Der Nur-Ansicht-Link blendet nur die Verwaltung aus, er ist kein
+          Schutz. Teile den Link nur mit deinem Team.
+        </div>
+      </section>
+
+      <section id="view-qr" hidden>
+        <div class="no-print form-row">
+          <button id="btn-print" class="btn btn-primary">Drucken</button>
+          <a href="#teilen" class="btn">Zurück</a>
+        </div>
+        <div id="qr-sheet" class="qr-sheet"></div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <noscript><p class="empty-state">putzii braucht JavaScript — es gibt keinen Server, alles passiert lokal im Browser.</p></noscript>
+
+    <script src="qrcodegen.js"></script>
+    <script src="helpers.js"></script>
+    <script src="store.js"></script>
+    <script src="model.js"></script>
+    <script src="share.js"></script>
+    <script src="router.js"></script>
+    <script src="ui-views.js"></script>
+    <script src="ui-manage.js"></script>
+    <script src="ui-share.js"></script>
+    <script src="app.js"></script>
+    <script src="self-check.js"></script>
+    <script src="sw-register.js"></script>
+  </body>
+</html>

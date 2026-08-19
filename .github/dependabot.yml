@@ -1,0 +1,13 @@
+# Dependabot template — static site. Copy to .github/dependabot.yml.
+# github-actions only for a no-build static site; add an `npm` block (see the
+# js-project template) if the site has a package.json build toolchain.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore(deps)
+    labels:
+      - dependencies

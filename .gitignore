@@ -1,0 +1,11 @@
+# Never one `git add -A` away from the public mirror.
+.env
+.env.*
+*.pem
+*.key
+*secret*
+*credentials*
+*.local.json
+.DS_Store
+node_modules/
+.playwright-mcp/

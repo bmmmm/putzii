@@ -1,0 +1,62 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Print layout for the QR sheet: 2×4 tiles per A4, everything else hidden. */
+
+@page {
+  size: A4 portrait;
+  margin: 12mm;
+}
+
+body {
+  background: #fff;
+  color: #000;
+  max-width: none;
+  padding: 0;
+}
+
+.app-header,
+.tabs,
+.toast,
+.banner,
+.no-print,
+#view-uebersicht,
+#view-verlauf,
+#view-verwalten,
+#view-teilen {
+  display: none !important;
+}
+
+#view-qr {
+  display: block !important;
+}
+
+.qr-sheet {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6mm;
+}
+
+.qr-tile {
+  border: 0.3mm dashed #999; /* cut lines */
+  border-radius: 0;
+  padding: 5mm;
+  text-align: center;
+  background: #fff;
+  break-inside: avoid;
+}
+
+.qr-tile canvas {
+  width: 40mm;
+  height: 40mm;
+}
+
+.qr-tile .tile-area {
+  font-weight: 700;
+  font-size: 14pt;
+  margin: 2mm 0 0;
+}
+
+.qr-tile .tile-plan {
+  color: #555;
+  font-size: 9pt;
+  margin: 0;
+}

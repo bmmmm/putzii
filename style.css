@@ -1,0 +1,493 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+
+:root {
+  --bg: #f4f6f7;
+  --card: #ffffff;
+  --text: #14201f;
+  --muted: #5f6f6d;
+  --border: #dbe3e2;
+  --accent: #0f766e;
+  --accent-text: #ffffff;
+  --ok: #16a34a;
+  --soon: #d97706;
+  --overdue: #dc2626;
+  --warn-bg: #fef3c7;
+  --warn-text: #92400e;
+  --banner-bg: #e0f2f1;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101615;
+    --card: #1a2322;
+    --text: #e4ecea;
+    --muted: #93a5a2;
+    --border: #2b3736;
+    --accent: #14b8a6;
+    --accent-text: #04211d;
+    --warn-bg: #3b2f14;
+    --warn-text: #fcd34d;
+    --banner-bg: #14302d;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Author display values (flex etc.) would otherwise beat the UA's [hidden]
+   rule — the JS toggles visibility exclusively via the hidden attribute. */
+[hidden] {
+  display: none !important;
+}
+
+html {
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+body {
+  margin: 0 auto;
+  max-width: 680px;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.45;
+  /* viewport-fit=cover is set, so notched devices need the inset padding too. */
+  padding: 0 max(12px, env(safe-area-inset-left)) env(safe-area-inset-bottom)
+    max(12px, env(safe-area-inset-right));
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: max(10px, env(safe-area-inset-top));
+}
+
+.app-header h1 {
+  margin: 6px 0;
+  font-size: 1.5rem;
+}
+
+.brand {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+h2 {
+  font-size: 1.1rem;
+  margin: 22px 0 8px;
+}
+
+a {
+  color: var(--accent);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* --- navigation --- */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+  overflow-x: auto;
+}
+
+.tabs a {
+  padding: 10px 12px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  color: var(--muted);
+  border-bottom: 3px solid transparent;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+
+.tabs a.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+/* --- buttons & forms --- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 1rem;
+  cursor: pointer;
+  text-decoration: none;
+  touch-action: manipulation;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.btn-small {
+  min-height: 36px;
+  padding: 4px 12px;
+  font-size: 0.9rem;
+}
+
+.btn-danger {
+  color: var(--overdue);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.badge {
+  background: var(--accent-text);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+input[type="text"],
+input[type="number"],
+select,
+textarea {
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 1rem;
+}
+
+input[type="number"] {
+  width: 5.5em;
+}
+
+.form-row,
+.filter-row,
+.share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.form-row input[type="text"] {
+  flex: 1;
+  min-width: 140px;
+}
+
+.file-label {
+  position: relative;
+}
+
+/* --- dashboard cards --- */
+
+.cards {
+  display: grid;
+  gap: 10px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left: 6px solid var(--muted);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.card.status-ok {
+  border-left-color: var(--ok);
+}
+
+.card.status-soon {
+  border-left-color: var(--soon);
+}
+
+.card.status-overdue {
+  border-left-color: var(--overdue);
+}
+
+.card .area-name {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 0 0 2px;
+}
+
+.card .due-line {
+  margin: 0;
+  font-weight: 600;
+}
+
+.status-ok .due-line {
+  color: var(--ok);
+}
+
+.status-soon .due-line {
+  color: var(--soon);
+}
+
+.status-overdue .due-line {
+  color: var(--overdue);
+}
+
+.card .last-line {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+/* --- history --- */
+
+.history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.history li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.history .who {
+  font-weight: 600;
+}
+
+.history .when {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.history .multi {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.history .deleted-area {
+  color: var(--muted);
+}
+
+/* --- manage lists --- */
+
+.manage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.manage-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.manage-list .grow {
+  flex: 1;
+}
+
+.manage-list .muted {
+  font-size: 0.9rem;
+}
+
+/* --- check-in page --- */
+
+.checkin-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px;
+  margin-top: 12px;
+}
+
+.checkin-card h2 {
+  margin: 0 0 4px;
+  font-size: 1.5rem;
+}
+
+.person-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.person-grid .btn.selected {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  font-weight: 700;
+}
+
+.big-confirm {
+  width: 100%;
+  font-size: 1.15rem;
+  min-height: 54px;
+  margin-top: 10px;
+}
+
+.result-check {
+  font-size: 2.2rem;
+  color: var(--ok);
+  margin: 0;
+}
+
+.undo-bar {
+  position: relative;
+  overflow: hidden;
+}
+
+/* --- misc --- */
+
+.banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  background: var(--banner-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin: 10px 0;
+}
+
+.warn {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.empty-state {
+  text-align: center;
+  color: var(--muted);
+  padding: 30px 10px;
+}
+
+.honesty-note {
+  margin: 26px 0 14px;
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.share-fallback {
+  width: 100%;
+  font-family: ui-monospace, "SF Mono", Monaco, monospace;
+  font-size: 0.8rem;
+}
+
+.qr-wrap {
+  text-align: center;
+  margin: 14px 0;
+}
+
+.qr-wrap canvas {
+  max-width: min(360px, 100%);
+  height: auto;
+  background: #fff;
+  border-radius: 8px;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 9999;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: rgba(20, 20, 20, 0.92);
+  color: #fff;
+  font-size: 0.95rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  max-width: 90vw;
+}
+
+.toast .btn {
+  min-height: 32px;
+  padding: 2px 10px;
+}
+
+/* --- QR sheet (screen preview; print layout lives in print.css) --- */
+
+.qr-sheet {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.qr-tile {
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  text-align: center;
+  background: var(--card);
+}
+
+.qr-tile canvas {
+  width: 40mm;
+  height: 40mm;
+  image-rendering: pixelated;
+  background: #fff;
+}
+
+.qr-tile .tile-area {
+  font-weight: 700;
+  margin: 6px 0 0;
+}
+
+.qr-tile .tile-plan {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .form-row .btn,
+  .share-actions .btn {
+    flex: 1 1 auto;
+  }
+}

@@ -40,6 +40,7 @@
 
     <nav class="tabs" aria-label="Hauptnavigation">
       <a href="#uebersicht" data-route="uebersicht">Übersicht</a>
+      <a href="#wochen" data-route="wochen">Wochen</a>
       <a href="#verlauf" data-route="verlauf">Verlauf</a>
       <a href="#verwalten" data-route="verwalten" data-hide-in-view-mode>Verwalten</a>
       <a href="#teilen" data-route="teilen">Teilen</a>
@@ -55,6 +56,11 @@
             oder öffne den Team-Link, den dir jemand geschickt hat.
           </p>
         </div>
+      </section>
+
+      <section id="view-wochen" hidden>
+        <ul id="weeks-list" class="weeks-list"></ul>
+        <button id="weeks-more" class="btn weeks-more" type="button">Mehr Wochen</button>
       </section>
 
       <section id="view-verlauf" hidden>
@@ -161,6 +167,7 @@
     <script src="model.js"></script>
     <script src="share.js"></script>
     <script src="router.js"></script>
+    <script src="ui-weeks.js"></script>
     <script src="ui-views.js"></script>
     <script src="ui-manage.js"></script>
     <script src="ui-share.js"></script>

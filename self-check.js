@@ -42,6 +42,7 @@
         areas: [],
         people: [],
         events: [],
+        weeks: [],
         seq: {},
       },
       over || {},
@@ -105,6 +106,52 @@
     check("normalizeName caps 40", H().normalizeName("x".repeat(60)).length === 40);
 
     check("PZ root null-prototype", Object.getPrototypeOf(PZ) === null);
+
+    // --- ISO week math (expected values verified against Python isocalendar) ---
+    const wk = (y, m, d) => H().isoWeekKey(new Date(y, m, d));
+    check("KW today anchor", wk(2026, 7, 19) === "2026-W34"); // Mi 19.08.2026
+    check("KW jan1 thursday", wk(2026, 0, 1) === "2026-W01");
+    check("KW year tail", wk(2025, 11, 28) === "2025-W52"); // So
+    check("KW early monday", wk(2025, 11, 29) === "2026-W01"); // Mo → next ISO year
+    check("KW 53 exists 2026", wk(2026, 11, 28) === "2026-W53"); // Mo
+    check("KW newyear in old year", wk(2027, 0, 1) === "2026-W53"); // Fr
+    check("KW sunday of W53", wk(2027, 0, 3) === "2026-W53");
+    check("KW first 2027", wk(2027, 0, 4) === "2027-W01");
+    check("KW 2021 boundary", wk(2021, 0, 1) === "2020-W53"); // Fr
+    check("KW dst spring", wk(2026, 2, 29) === "2026-W13");
+    check("KW dst autumn", wk(2026, 9, 25) === "2026-W43");
+    check("addWeeks 53->01", H().addWeeks("2026-W53", 1) === "2027-W01");
+    check("addWeeks 01->53 back", H().addWeeks("2027-W01", -1) === "2026-W53");
+    check("addWeeks 52->01", H().addWeeks("2025-W52", 1) === "2026-W01");
+    check("weekStartDate rejects fake W53", H().weekStartDate("2027-W53") === null);
+    check("weekStartDate accepts real W53", H().weekStartDate("2026-W53") !== null);
+    check(
+      "weekStartDate rejects junk",
+      H().weekStartDate("2026-W00") === null &&
+        H().weekStartDate("2026-W54") === null &&
+        H().weekStartDate("x") === null,
+    );
+    {
+      // Round-trip sweep across DST switches and three year boundaries.
+      let sweepOk = true;
+      let k = "2025-W01";
+      for (let i = 0; i < 160; i++) {
+        if (H().isoWeekKey(H().weekStartDate(k)) !== k) {
+          sweepOk = false;
+          break;
+        }
+        k = H().addWeeks(k, 1);
+      }
+      check("week key roundtrip sweep", sweepOk);
+    }
+    check("week range same month", H().formatWeekRange("2026-W34") === "17.–23.08.");
+    check("week range month crossing", H().formatWeekRange("2026-W36") === "31.08.–06.09.");
+    check(
+      "week keys sort chronologically",
+      "2026-W09" < "2026-W10" && "2026-W10" < "2026-W53" && "2026-W53" < "2027-W01",
+    );
+    check("week label plain", H().formatWeekLabel("2026-W09", "2026-W34") === "KW 9");
+    check("week label foreign year", H().formatWeekLabel("2027-W01", "2026-W34") === "KW 1 · 2027");
 
     // --- store: quota rollback ---
     cleanup();
@@ -286,6 +333,127 @@
     const evil = mkPlan({ areas: [mkArea("__proto__", "evil", 7)] });
     PZ.share.mergePlans(localPlan, evil, now);
     check("no prototype pollution", !("polluted" in {}) && Object.prototype.name === undefined);
+
+    // --- weeks: model matrix, merge, wire, sanitizing ---
+    {
+      // Own pinned clock: Wed 2026-08-19 12:40 CEST. (The `wNow` above is
+      // 2025 — fine for the offset-based checks, wrong for KW pins.)
+      const wNow = 1787136000000;
+      const wNowMin = Math.floor(wNow / 60000);
+      const wkKey = "2026-W34";
+      const mkWeek = (id, days, over) =>
+        Object.assign({ id, days, createdAt: 1700000000, updatedAt: 1700000000 }, over || {});
+      const wPlan = mkPlan({
+        areas: [
+          mkArea("aw01", "Küche", 7),
+          mkArea("aw02", "Bad", 7),
+          mkArea("aw03", "Alt", 7, { deletedAt: 1700000001 }),
+        ],
+        people: [mkPerson("pw01", "Timo"), mkPerson("pw02", "Sina")],
+        weeks: [
+          mkWeek(wkKey, { 3: [["aw01", "pw01"], ["aw02", "pw02"]], 5: [["", ""]], 6: [["aw03", "pw01"]] }),
+        ],
+        events: [mkEvent("dw.1", "aw01", "pw01", wNowMin - 60)], // Küche, same Wednesday
+      });
+      check("week key matches pinned wNow", M().currentWeekKey(wNow) === wkKey);
+      const byDay = M().eventsByDay(wPlan, wNow);
+      const wRec = M().weekById(wPlan, wkKey);
+      check("cell partial (1 of 2 named)", M().dayCellState(wPlan, wRec, wkKey, 3, byDay).state === "partial");
+      check("cell planned unnamed friday", M().dayCellState(wPlan, wRec, wkKey, 5, byDay).state === "planned");
+      check(
+        "cell deleted-area fallback planned",
+        M().dayCellState(wPlan, wRec, wkKey, 6, byDay).state === "planned",
+      );
+      check("cell none monday", M().dayCellState(wPlan, wRec, wkKey, 1, byDay).state === "none");
+      // Second named area cleaned the same day → done; Monday check-in without
+      // a plan → extra.
+      const wPlan2 = mkPlan(Object.assign({}, wPlan, {
+        events: wPlan.events.concat([
+          mkEvent("dw.2", "aw02", "pw02", wNowMin - 30),
+          mkEvent("dw.3", "aw01", "pw01", wNowMin - 2 * 24 * 60), // Monday
+        ]),
+      }));
+      const byDay2 = M().eventsByDay(wPlan2, wNow);
+      check("cell done (all named)", M().dayCellState(wPlan2, wRec, wkKey, 3, byDay2).state === "done");
+      check("cell extra monday", M().dayCellState(wPlan2, wRec, wkKey, 1, byDay2).state === "extra");
+      const tasks = M().weekTasks(wPlan, wkKey, wNow, byDay);
+      check("weekTasks count", tasks.length === 4);
+      check(
+        "weekTasks done semantics",
+        tasks.find((t) => t.areaId === "aw01").done === true &&
+          tasks.find((t) => t.areaId === "aw02").done === false &&
+          tasks.find((t) => !t.areaId && t.day === 5).done === false,
+      );
+      const copied = M().copyPrevWeekDays(wPlan, "2026-W35");
+      check("copyPrevWeek copies", copied && deepEqual(copied["3"], [["aw01", "pw01"], ["aw02", "pw02"]]));
+      if (copied) copied["3"][0][0] = "MUTATED";
+      check("copyPrevWeek is fresh", wRec.days["3"][0][0] === "aw01");
+      check("copyPrevWeek null on empty", M().copyPrevWeekDays(wPlan, "2026-W40") === null);
+      check(
+        "unsharedWeekCount sec/ms boundary",
+        M().unsharedWeekCount(wPlan, 0) === 1 && M().unsharedWeekCount(wPlan, wNow) === 0,
+      );
+
+      // merge: strict-> LWW on week records; weeks-less remote keeps local weeks
+      const newerWeek = mkPlan({ weeks: [mkWeek(wkKey, { 2: [["aw01", "pw02"]] }, { updatedAt: 1700000200 })] });
+      const wm1 = PZ.share.mergePlans(wPlan, newerWeek, wNow);
+      check(
+        "week LWW newer remote wins",
+        deepEqual(wm1.plan.weeks[0].days, { 2: [["aw01", "pw02"]] }) && wm1.summary.changedWeeks === 1,
+      );
+      const tieWeek = mkPlan({ weeks: [mkWeek(wkKey, { 2: [["aw01", "pw02"]] })] });
+      check(
+        "week LWW tie keeps local",
+        PZ.share.mergePlans(wPlan, tieWeek, wNow).plan.weeks[0].days["3"] !== undefined,
+      );
+      check("weeks-less remote keeps local weeks", PZ.share.mergePlans(wPlan, mkPlan({}), wNow).plan.weeks.length === 1);
+
+      // wire roundtrip incl. weeks; legacy 9-element payload → weeks []
+      const wWire = PZ.share.wireFromPlan(wPlan, 200, false);
+      const wDecoded = PZ.share.planFromWire(wWire);
+      check("wire weeks roundtrip", deepEqual(wDecoded.plan.weeks, wPlan.weeks));
+      const legacy = PZ.share.planFromWire(wWire.slice(0, 9));
+      check("legacy payload → empty weeks", Array.isArray(legacy.plan.weeks) && legacy.plan.weeks.length === 0);
+
+      // hostile days object: only keys 1..7 read, junk filtered, __proto__ dead
+      const hostileWire = PZ.share.wireFromPlan(
+        mkPlan({ weeks: [mkWeek(wkKey, JSON.parse('{"__proto__":[["x","y"]],"3":"junk","4":[["ok","p"],"junk",["a"]]}'))] }),
+        200,
+        false,
+      );
+      const hostileDecoded = PZ.share.planFromWire(hostileWire).plan.weeks[0];
+      check(
+        "hostile days sanitized",
+        hostileDecoded.days["3"] === undefined &&
+          deepEqual(hostileDecoded.days["4"], [["ok", "p"], ["a", ""]]) &&
+          Object.prototype.x === undefined,
+      );
+      check(
+        "wire rejects fake week keys",
+        PZ.share.planFromWire(PZ.share.wireFromPlan(mkPlan({ weeks: [mkWeek("2027-W53", {})] }), 200, false)).plan
+          .weeks.length === 0,
+      );
+
+      // share window: current−1 … current+horizon
+      const windowPlan = mkPlan({
+        weeks: [mkWeek("2026-W32", {}), mkWeek("2026-W33", {}), mkWeek(wkKey, {}), mkWeek("2027-W10", {})],
+      });
+      // default horizon 24: hi = 2027-W05, so 2027-W10 and 2026-W32 fall out
+      const win = PZ.share.selectShareWeeks(windowPlan, wNow).map((w) => w.id);
+      check("share window default", deepEqual(win, ["2026-W33", "2026-W34"]));
+      check("share window horizon 0", deepEqual(PZ.share.selectShareWeeks(windowPlan, wNow, 0).map((w) => w.id), ["2026-W33", "2026-W34"]));
+
+      // store: saveWeek persists + prunes far past
+      cleanup();
+      const storePlan = mkPlan({ weeks: [mkWeek("2020-W05", { 1: [["", ""]] })] });
+      check("saveWeek persists", S().savePlan(storePlan) && S().saveWeek(storePlan, "2026-W40", { 2: [["", ""]] }));
+      const reloaded = S().loadPlan(SC_PLAN);
+      check(
+        "saveWeek pruned far past",
+        reloaded && reloaded.weeks.some((w) => w.id === "2026-W40") && !reloaded.weeks.some((w) => w.id === "2020-W05"),
+      );
+      cleanup();
+    }
 
     // --- file format ---
     const fileText = PZ.share.serializeFile(wirePlan);

@@ -6,7 +6,7 @@
   const PZ = (window.PZ = window.PZ || Object.create(null));
   const H = () => PZ.helpers;
 
-  const ROUTES = ["uebersicht", "verlauf", "verwalten", "teilen", "qr"];
+  const ROUTES = ["uebersicht", "wochen", "verlauf", "verwalten", "teilen", "qr"];
 
   // Classify without decoding: cheap, sync, and it enforces the size cap
   // before any parsing can happen.

@@ -370,6 +370,203 @@ input[type="number"] {
   overflow: hidden;
 }
 
+/* --- weeks (KW duty plan) --- */
+
+.weeks-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.week-row {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.week-row.week-current {
+  border-left: 6px solid var(--accent);
+}
+
+.week-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.week-kw {
+  font-weight: 700;
+}
+
+.week-range {
+  color: var(--muted);
+}
+
+.week-summary {
+  flex-basis: 100%;
+  font-size: 0.9rem;
+}
+
+.week-strip {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.day-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-height: 52px;
+  padding: 4px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 0.8rem;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* View mode disables cells but must keep full contrast — it is information,
+   not a greyed-out control. */
+.day-cell:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.day-cell .day-dow {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.day-cell .day-num {
+  font-weight: 600;
+}
+
+.day-cell .day-mark {
+  font-size: 0.75rem;
+  min-height: 1em;
+}
+
+.state-planned {
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
+}
+
+.state-partial {
+  border-color: var(--soon);
+  outline: 1px solid var(--soon);
+}
+
+.state-partial .day-mark {
+  color: var(--soon);
+  font-weight: 700;
+}
+
+.state-done {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.state-done .day-dow {
+  color: var(--accent-text);
+  opacity: 0.8;
+}
+
+.state-extra .day-mark {
+  color: var(--muted);
+}
+
+.day-editor {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.day-editor-title {
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.chip-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chip {
+  min-height: 36px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.chip.selected {
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
+  font-weight: 600;
+}
+
+.slot-person {
+  min-height: 36px;
+  padding: 2px 6px;
+}
+
+.day-editor-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.weeks-more {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.week-card {
+  display: block;
+  cursor: pointer;
+}
+
+.week-card-head {
+  margin: 0 0 4px;
+}
+
+.week-card-tasks {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+}
+
+.week-card-tasks li {
+  padding: 1px 0;
+}
+
+.week-card .week-strip {
+  margin-top: 8px;
+  pointer-events: none;
+}
+
 /* --- misc --- */
 
 .banner {

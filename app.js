@@ -29,6 +29,9 @@
       case "uebersicht":
         PZ.uiViews.renderUebersicht();
         break;
+      case "wochen":
+        PZ.uiWeeks.render();
+        break;
       case "verlauf":
         PZ.uiViews.renderVerlauf();
         break;
@@ -80,6 +83,8 @@
     if (summary.newAreas) parts.push(`${summary.newAreas} neue Bereiche`);
     if (summary.changedAreas) parts.push(`${summary.changedAreas} Bereiche geändert`);
     if (summary.newPeople) parts.push(`${summary.newPeople} neue Personen`);
+    if (summary.newWeeks) parts.push(`${summary.newWeeks} neue Wochen`);
+    if (summary.changedWeeks) parts.push(`${summary.changedWeeks} Wochen geändert`);
     const msg = parts.length ? `Zusammengeführt: ${parts.join(", ")}` : "Plan ist schon aktuell.";
     if (knownBefore && parts.length) {
       H().showToast(msg, {
@@ -144,6 +149,7 @@
     S().ensureSchema();
     PZ.onRouteShown = refresh;
     PZ.uiViews.init();
+    PZ.uiWeeks.init();
     PZ.uiManage.init();
     PZ.uiShare.init();
     window.addEventListener("hashchange", handleHash);

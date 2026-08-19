@@ -96,7 +96,9 @@
       statsEl.textContent = "";
       return;
     }
-    let text = `Teilt ${entry.sharedEvents} von ${entry.totalEvents} Einträgen · Link: ${entry.url.length} Zeichen.`;
+    let text = `Teilt ${entry.sharedEvents} von ${entry.totalEvents} Einträgen`;
+    if (entry.totalWeeks > 0) text += ` · ${entry.sharedWeeks} von ${entry.totalWeeks} Wochen`;
+    text += ` · Link: ${entry.url.length} Zeichen.`;
     if (entry.band === "amber") text += " Zu groß für QR — Link oder Datei nutzen.";
     if (entry.band === "red") text += " Zu groß für einen Link — Datei nutzen.";
     statsEl.textContent = text;
@@ -242,7 +244,9 @@
       return;
     }
     btn.hidden = false;
-    const n = M().unsharedCount(plan, S().getLastSharedAt(plan.planId));
+    // Week planning must nudge a re-share just like check-ins do.
+    const sharedAt = S().getLastSharedAt(plan.planId);
+    const n = M().unsharedCount(plan, sharedAt) + M().unsharedWeekCount(plan, sharedAt);
     count.hidden = n === 0;
     count.textContent = n > 0 ? `· ${n} neu` : "";
   }

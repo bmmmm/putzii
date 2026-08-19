@@ -13,6 +13,39 @@
     return node;
   }
 
+  // Current-week duty card: "KW 34 · wer muss diese Woche was machen".
+  // Read-only on purpose — the card summarises, the Wochen tab edits.
+  function renderWeekCard(container, plan, now) {
+    const weekKey = M().currentWeekKey(now);
+    const byDay = M().eventsByDay(plan, now);
+    const tasks = M().weekTasks(plan, weekKey, now, byDay);
+    if (!tasks.length && !M().livePeople(plan).length) return;
+    const card = el("div", "card week-card");
+    const head = el("p", "week-card-head");
+    head.appendChild(el("strong", "", H().formatWeekLabel(weekKey, weekKey)));
+    head.appendChild(document.createTextNode(` · ${H().formatWeekRange(weekKey)}`));
+    card.appendChild(head);
+    if (tasks.length) {
+      const list = el("ul", "week-card-tasks");
+      for (const t of tasks) {
+        const li = document.createElement("li");
+        const who = t.personId ? M().personName(plan, t.personId) : "offen";
+        const what = t.areaId ? (M().areaById(plan, t.areaId) || { name: "?" }).name : "putzen";
+        li.textContent = `${who} → ${what} (${H().ISO_DOW_SHORT[t.day - 1]})${t.done ? " ✓" : ""}`;
+        if (!t.personId) li.classList.add("muted");
+        list.appendChild(li);
+      }
+      card.appendChild(list);
+      const doneCount = tasks.filter((t) => t.done).length;
+      card.appendChild(el("p", "muted", `${doneCount} von ${tasks.length} erledigt`));
+      card.appendChild(PZ.uiWeeks.renderStrip(plan, M().weekById(plan, weekKey), weekKey, byDay, { disabled: true }));
+    } else {
+      card.appendChild(el("p", "muted", "Noch keine Putztage geplant — antippen zum Planen."));
+    }
+    card.addEventListener("click", () => PZ.router.go("wochen"));
+    container.appendChild(card);
+  }
+
   function renderUebersicht() {
     const container = document.getElementById("cards-container");
     const empty = document.getElementById("empty-uebersicht");
@@ -23,6 +56,7 @@
     empty.hidden = rows.length > 0;
     if (!plan || !rows.length) return;
     const now = Date.now();
+    renderWeekCard(container, plan, now);
     for (const row of rows) {
       const card = el("div", `card status-${row.status}`);
       const left = el("div");

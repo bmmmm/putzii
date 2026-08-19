@@ -17,9 +17,10 @@ backend, no dependencies (qrcodegen.js is vendored). UI German, code English.
 
 | File | Role |
 |---|---|
-| `share.js` | Wire codec (`#p1.` fragment), adaptive event cap, `mergePlans` — the heart |
-| `store.js` | Plan docs in localStorage, event minting, atomic append + rollback |
-| `model.js` | Pure due/status/history logic (everything takes `nowMs`) |
+| `share.js` | Wire codec (`#p1.` fragment), adaptive event cap, week window, `mergePlans` — the heart |
+| `store.js` | Plan docs in localStorage, event minting, atomic append + rollback, `saveWeek` |
+| `model.js` | Pure due/status/history logic + KW duty plan (everything takes `nowMs`) |
+| `ui-weeks.js` | Wochen tab: endless KW list, day-cell strip, inline slot editor (index-only) |
 | `ui-checkin.js` + `c.html` | QR check-in mini page incl. cold path (no plan on device) |
 | `app.js` | index boot: hash classify, merge-on-open, pending banner |
 | `router.js` | Hash prefixes: `p1./p1u.` share, `c1.<planId>.<areaId>` check-in, routes |
@@ -43,6 +44,16 @@ backend, no dependencies (qrcodegen.js is vendored). UI German, code English.
    enforce it, including the "every page asset is in APP_SHELL" cross-check.
 8. All registries are `Object.create(null)`/`Map` — `__proto__` ids must not
    pollute prototypes (self-check asserts it).
+9. Week records (`plan.weeks[]`): `id` IS the ISO week key (`"2026-W34"`,
+   pad2 — lexicographic order must equal chronological order), `days` keyed
+   "1"–"7" with `[areaId, personId]` slots. LWW like other config; NO
+   `deletedAt` — an empty record with a newer `updatedAt` is the tombstone.
+   Week edits must write a FRESH days object (merged records are shallow
+   copies). ISO week math is hand-rolled in helpers.js — deliberately no
+   weeksInYear(); `weekStartDate` validates keys by round-trip.
+10. The wire envelope's slots are APPEND-ONLY (weeks = index 9, no version
+   bump): never reorder or retype an existing index; new data goes at the
+   end. Bump WIRE_VERSION only for structurally incompatible changes.
 
 ## Dev loop
 

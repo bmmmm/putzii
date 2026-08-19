@@ -6,6 +6,12 @@
   const PZ = (window.PZ = window.PZ || Object.create(null));
   const H = () => PZ.helpers;
 
+  // WIRE CONTRACT: the envelope is a positional array and its slots are
+  // APPEND-ONLY — never reorder or retype an existing index; new data goes at
+  // the end (weeks landed as index 9 without a version bump: old decoders
+  // ignore trailing elements and still merge everything they know, new
+  // decoders treat a missing element as empty). Bump WIRE_VERSION only for a
+  // structurally incompatible change.
   const WIRE_VERSION = 1;
   const FLAG_VIEWER = 1;
   // Signal caps messages at ~2000 chars — 1800 leaves headroom for share-sheet
@@ -13,6 +19,12 @@
   const URL_BUDGET_GREEN = 1800;
   const URL_BUDGET_AMBER = 4000;
   const SHARE_EVENT_CAP = 200;
+  // Week window on the wire: current−1 (a Monday-morning sync must not lose
+  // the week that just ended) through current+SHARE_WEEK_HORIZON = 26 records,
+  // measured at +347…+404 chars — no adaptive shrinking needed normally.
+  const SHARE_WEEK_HORIZON = 24;
+  const WIRE_MAX_WEEKS = 400;
+  const WIRE_MAX_DAY_SLOTS = 20;
   const MIN_EVENT_TS = Date.UTC(2020, 0, 1);
   const MAX_FUTURE_MS = 30 * 86400000;
 
@@ -50,10 +62,22 @@
     return picked;
   }
 
+  // Week records inside the current share window (string compare — pad2 keys
+  // sort chronologically). Pure: the caller supplies nowMs.
+  function selectShareWeeks(plan, nowMs, horizon) {
+    const cur = H().isoWeekKey(new Date(nowMs));
+    const lo = H().addWeeks(cur, -1) || cur;
+    const h = Number.isFinite(horizon) ? horizon : SHARE_WEEK_HORIZON;
+    const hi = H().addWeeks(cur, h) || cur;
+    return (plan.weeks || []).filter((w) => w.id >= lo && w.id <= hi);
+  }
+
   // Positional-array envelope. Config (areas/people) always ships completely —
   // including soft-deleted records, so deletions propagate. Only events are
-  // capped. Ids stay ids (not indices): self-describing beats ~8 gzipped bytes.
-  function wireFromPlan(plan, cap, viewer) {
+  // capped and weeks windowed. Ids stay ids (not indices): self-describing
+  // beats ~8 gzipped bytes. `weeks` defaults to ALL weeks (what a round-trip
+  // wants); buildShareUrl passes the time window.
+  function wireFromPlan(plan, cap, viewer, weeks) {
     const events = selectShareEvents(plan, cap);
     const tBaseMin = events.length ? Math.min(...events.map((e) => Math.floor(e.ts / 60000))) : 0;
     return [
@@ -66,7 +90,41 @@
       plan.people.map((p) => [p.id, p.name, p.createdAt, p.updatedAt, p.deletedAt || 0]),
       events.map((e) => [e.id, e.areaId, e.personId, Math.floor(e.ts / 60000) - tBaseMin]),
       viewer ? FLAG_VIEWER : 0,
+      (weeks || plan.weeks || []).map((w) => [w.id, w.days, w.createdAt, w.updatedAt]),
     ];
+  }
+
+  // Sanitize a wire `days` object. Only keys "1".."7" are ever read or
+  // written, so "__proto__" can never land as a key; slots become clean
+  // [areaId, personId] string pairs.
+  function decodeDays(raw) {
+    const out = Object.create(null);
+    if (!raw || typeof raw !== "object") return out;
+    for (let d = 1; d <= 7; d++) {
+      const v = raw[String(d)];
+      if (!Array.isArray(v)) continue;
+      out[String(d)] = v
+        .filter((s) => Array.isArray(s))
+        .slice(0, WIRE_MAX_DAY_SLOTS)
+        .map((s) => [
+          typeof s[0] === "string" ? s[0].slice(0, 32) : "",
+          typeof s[1] === "string" ? s[1].slice(0, 32) : "",
+        ]);
+    }
+    return out;
+  }
+
+  function decodeWeeks(rows) {
+    if (!Array.isArray(rows)) return [];
+    return rows
+      .filter((r) => Array.isArray(r) && typeof r[0] === "string" && H().weekStartDate(r[0]))
+      .slice(0, WIRE_MAX_WEEKS)
+      .map((r) => ({
+        id: r[0],
+        days: decodeDays(r[1]),
+        createdAt: num(r[2], 0),
+        updatedAt: num(r[3], 0),
+      }));
   }
 
   function num(x, fallback) {
@@ -119,6 +177,7 @@
           personId: typeof r[2] === "string" ? r[2] : "",
           ts: (num(tBaseMin, 0) + num(r[3], 0)) * 60000,
         })),
+      weeks: decodeWeeks(arr[9]), // absent on pre-v1.1 payloads → []
       seq: {},
     };
     const flags = num(arr[8], 0);
@@ -190,10 +249,12 @@
       areas: [],
       people: [],
       events: [],
+      weeks: [],
       seq: {},
     };
     const areas = mergeRecordList(base.areas, remote.areas);
     const people = mergeRecordList(base.people, remote.people);
+    const weeks = mergeRecordList(base.weeks || [], remote.weeks || []);
     const known = new Set(base.events.map((e) => e.id));
     const events = base.events.slice();
     let newEvents = 0;
@@ -214,6 +275,7 @@
       areas: areas.list,
       people: people.list,
       events,
+      weeks: weeks.list,
       seq,
     };
     return {
@@ -224,6 +286,8 @@
         changedAreas: areas.changed,
         newPeople: people.added,
         changedPeople: people.changed,
+        newWeeks: weeks.added,
+        changedWeeks: weeks.changed,
       },
     };
   }
@@ -238,24 +302,39 @@
   }
 
   // Build the full share URL with the adaptive event cap: shrink by 0.7 until
-  // the URL fits the green budget or only the per-area anchors remain. Returns
-  // the honest counts so the UI can always say "Teilt X von Y Einträgen".
+  // the URL fits the green budget or only the per-area anchors remain; if
+  // STILL over budget, shrink the week window. Returns the honest counts so
+  // the UI can always say "Teilt X von Y Einträgen · N von M Wochen".
   async function buildShareUrl(plan, opts) {
     const viewer = !!(opts && opts.viewer);
     const base = baseDirUrl();
+    const now = Date.now();
+    let weeks = selectShareWeeks(plan, now);
     let cap = SHARE_EVENT_CAP;
-    let frag = await encodeWire(wireFromPlan(plan, cap, viewer));
-    let shared = Math.min(plan.events.length, selectShareEvents(plan, cap).length);
-    for (let i = 0; i < 8 && base.length + 1 + frag.length > URL_BUDGET_GREEN && cap > 0; i++) {
+    const overBudget = (f) => base.length + 1 + f.length > URL_BUDGET_GREEN;
+    let frag = await encodeWire(wireFromPlan(plan, cap, viewer, weeks));
+    let shared = selectShareEvents(plan, cap).length;
+    for (let i = 0; i < 8 && overBudget(frag) && cap > 0; i++) {
       cap = Math.floor(cap * 0.7);
-      const events = selectShareEvents(plan, cap);
-      frag = await encodeWire(wireFromPlan(plan, cap, viewer));
-      shared = events.length;
+      frag = await encodeWire(wireFromPlan(plan, cap, viewer, weeks));
+      shared = selectShareEvents(plan, cap).length;
       if (cap === 0) break;
+    }
+    for (const h of [12, 6, 2, 0]) {
+      if (!overBudget(frag)) break;
+      weeks = selectShareWeeks(plan, now, h);
+      frag = await encodeWire(wireFromPlan(plan, cap, viewer, weeks));
     }
     const url = `${base}#${frag}`;
     const band = url.length <= URL_BUDGET_GREEN ? "green" : url.length <= URL_BUDGET_AMBER ? "amber" : "red";
-    return { url, band, sharedEvents: shared, totalEvents: plan.events.length };
+    return {
+      url,
+      band,
+      sharedEvents: shared,
+      totalEvents: plan.events.length,
+      sharedWeeks: weeks.length,
+      totalWeeks: (plan.weeks || []).length,
+    };
   }
 
   // Decode a "#p1./#p1u." fragment payload (without the leading "#").
@@ -317,6 +396,13 @@
       events: Array.isArray(p.events)
         ? p.events.filter((e) => e && typeof e.id === "string" && typeof e.areaId === "string")
         : [],
+      // parseFile is a field WHITELIST — forgetting a new field here silently
+      // drops it on every file import. Weeks reuse the wire sanitizer.
+      weeks: decodeWeeks(
+        Array.isArray(p.weeks)
+          ? p.weeks.map((w) => (w && typeof w === "object" ? [w.id, w.days, w.createdAt, w.updatedAt] : null))
+          : [],
+      ),
       seq: {},
     };
   }
@@ -326,9 +412,11 @@
     URL_BUDGET_GREEN,
     URL_BUDGET_AMBER,
     SHARE_EVENT_CAP,
+    SHARE_WEEK_HORIZON,
     baseDirUrl,
     checkinUrl,
     selectShareEvents,
+    selectShareWeeks,
     wireFromPlan,
     planFromWire,
     mergePlans,

@@ -294,6 +294,92 @@
     }
   }
 
+  // --- ISO calendar weeks ---
+
+  const ISO_DOW_SHORT = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+  const ISO_DOW_LONG = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"];
+
+  // Days since epoch for a LOCAL calendar date. Built via Date.UTC of the local
+  // y/m/d triple, so a 23 h or 25 h DST day still counts as exactly one day —
+  // differences between two day numbers are exact multiples of 1.
+  function dayNumber(d) {
+    return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000);
+  }
+
+  function isoWeekday(d) {
+    return d.getDay() || 7; // Mo=1 … So=7
+  }
+
+  function isoMonday(d) {
+    const m = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    m.setDate(m.getDate() - (isoWeekday(m) - 1));
+    return m;
+  }
+
+  // ISO-8601: the THURSDAY of the week decides the year; week 1 contains Jan 4.
+  // Both Thursdays reduce to integer day numbers, so the /7 is exact.
+  function isoWeekParts(d) {
+    const thu = isoMonday(d);
+    thu.setDate(thu.getDate() + 3);
+    const year = thu.getFullYear();
+    const firstThu = isoMonday(new Date(year, 0, 4));
+    firstThu.setDate(firstThu.getDate() + 3);
+    return { year, week: 1 + (dayNumber(thu) - dayNumber(firstThu)) / 7 };
+  }
+
+  // "2026-W34" — zero-padded week, so lexicographic order IS chronological
+  // order across year boundaries. Load-bearing: share window and pruning are
+  // plain string comparisons.
+  function isoWeekKey(d) {
+    if (!(d instanceof Date) || isNaN(d.getTime())) return "";
+    const parts = isoWeekParts(d);
+    return `${parts.year}-W${pad2(parts.week)}`;
+  }
+
+  // Monday 00:00 local — or null for a malformed key OR a week that does not
+  // exist (e.g. "2027-W53"; 2027 has only 52). The round-trip is the
+  // validator: setDate would silently roll a bogus W53 into next year's W01.
+  function weekStartDate(key) {
+    const m = /^(\d{4})-W(\d{2})$/.exec(String(key || ""));
+    if (!m) return null;
+    const year = +m[1];
+    const week = +m[2];
+    if (year < 2000 || year > 2100 || week < 1 || week > 53) return null;
+    const mon = isoMonday(new Date(year, 0, 4));
+    mon.setDate(mon.getDate() + (week - 1) * 7);
+    return isoWeekKey(mon) === key ? mon : null;
+  }
+
+  // 52/53→01 rollovers come free via setDate overflow — deliberately NO
+  // weeksInYear() anywhere, that's how the year-boundary bug is avoided.
+  function addWeeks(key, n) {
+    const mon = weekStartDate(key);
+    if (!mon) return "";
+    mon.setDate(mon.getDate() + n * 7);
+    return isoWeekKey(mon);
+  }
+
+  // "17.–23.08." / month-crossing "31.08.–06.09." (year lives in the KW label).
+  function formatWeekRange(key) {
+    const mon = weekStartDate(key);
+    if (!mon) return "";
+    const sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6);
+    if (mon.getMonth() === sun.getMonth()) {
+      return `${pad2(mon.getDate())}.–${pad2(sun.getDate())}.${pad2(sun.getMonth() + 1)}.`;
+    }
+    return `${pad2(mon.getDate())}.${pad2(mon.getMonth() + 1)}.–${pad2(sun.getDate())}.${pad2(sun.getMonth() + 1)}.`;
+  }
+
+  // "KW 34" — with "· 2027" appended once the key's ISO year differs from the
+  // reference week's (the only confusing thing about an endless forward list).
+  function formatWeekLabel(key, refKey) {
+    const m = /^(\d{4})-W(\d{2})$/.exec(String(key || ""));
+    if (!m) return "";
+    const label = `KW ${Number(m[2])}`;
+    const refYear = String(refKey || "").slice(0, 4);
+    return refYear && m[1] !== refYear ? `${label} · ${m[1]}` : label;
+  }
+
   let toastTimer = 0;
 
   // Toast with an optional action button ({label, onClick}). Lives here because
@@ -350,6 +436,16 @@
     formatDateTime,
     formatRelPast,
     formatDue,
+    ISO_DOW_SHORT,
+    ISO_DOW_LONG,
+    dayNumber,
+    isoWeekday,
+    isoMonday,
+    isoWeekKey,
+    weekStartDate,
+    addWeeks,
+    formatWeekRange,
+    formatWeekLabel,
     drawQrToCanvas,
     showToast,
   };

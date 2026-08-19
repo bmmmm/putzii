@@ -12,6 +12,11 @@ nie einen Server. Check-in vor Ort per QR-Code am Putzbereich.
 - **Bereiche + Intervalle**: Jeder Bereich (Küche, Bad, …) hat ein Putz-Intervall
   in Tagen. Fällig = letzter Check-in + Intervall. Ampel-Übersicht: grün / bald
   fällig / überfällig.
+- **KW-Wochenplan**: Endlose Liste der Kalenderwochen (aktuelle oben), pro Woche
+  ein Wochenstrahl Mo–So. Tag antippen = Putztag; pro Tag lassen sich Aufgaben
+  als Bereich × Person zuordnen („Timo → Küche, Sina → Bad"). Die Übersicht
+  zeigt, wer in der aktuellen KW was machen muss; Check-ins füllen die Zellen
+  (✓ erledigt, „1/2" teilweise).
 - **Check-in per QR**: Pro Bereich ein QR-Code zum Ausdrucken (Druckbogen in
   der App). Scannen → Name antippen → „Geputzt ✓". Doppel-Scans sind durch ein
   10-Minuten-Idempotenzfenster und eine 6-Stunden-Nachfrage abgesichert.

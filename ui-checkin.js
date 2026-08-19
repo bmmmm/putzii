@@ -139,9 +139,16 @@
     c.appendChild(el("p", "", "Wer hat geputzt?"));
     const grid = el("div", "person-grid");
     const me = S().getMe(plan.planId);
+    // Current-week duty for this area: that person sorts first with a
+    // "geplant" hint — never auto-selected.
+    const now = Date.now();
+    const plannedTask = M()
+      .weekTasks(plan, M().currentWeekKey(now), now)
+      .find((t) => t.areaId === area.id && t.personId);
+    const planned = plannedTask ? plannedTask.personId : "";
     const people = M().livePeople(plan).slice();
-    // Last-used person on this device first — but never auto-selected.
-    people.sort((a, b) => (a.id === me ? -1 : 0) - (b.id === me ? -1 : 0));
+    const rank = (p) => (p.id === planned ? -2 : 0) + (p.id === me ? -1 : 0);
+    people.sort((a, b) => rank(a) - rank(b));
     const confirmBtn = el("button", "btn btn-primary big-confirm", "Geputzt ✓");
     confirmBtn.type = "button";
     confirmBtn.disabled = true;
@@ -156,7 +163,7 @@
     }
 
     for (const person of people) {
-      const btn = el("button", "btn", person.name);
+      const btn = el("button", "btn", person.id === planned ? `${person.name} · geplant` : person.name);
       btn.type = "button";
       btn.dataset.person = person.id;
       btn.addEventListener("click", () => select(person.id, person.name));

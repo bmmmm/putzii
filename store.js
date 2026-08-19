@@ -77,12 +77,18 @@
     );
   }
 
-  function loadPlan(planId) {
-    if (!planId) return null;
-    const p = H().safeParse(H().safeLocalStorageGetItem(K.plan(planId)));
+  // Every plan read goes through this: plans persisted by older builds lack
+  // newer keys (e.g. `weeks` before v1.1) and would crash the first render.
+  function normalizePlan(p) {
     if (!validPlanShape(p)) return null;
     if (!p.seq || typeof p.seq !== "object") p.seq = {};
+    if (!Array.isArray(p.weeks)) p.weeks = [];
     return p;
+  }
+
+  function loadPlan(planId) {
+    if (!planId) return null;
+    return normalizePlan(H().safeParse(H().safeLocalStorageGetItem(K.plan(planId))));
   }
 
   function loadActivePlan() {
@@ -106,6 +112,7 @@
       areas: [],
       people: [],
       events: [],
+      weeks: [],
       seq: {},
     };
     if (!savePlan(plan)) return null;
@@ -210,6 +217,37 @@
     return true;
   }
 
+  const WEEK_KEEP_PAST = 8;
+  const LOCAL_WEEK_CAP = 400;
+
+  // Drop week records far in the past (Verlauf covers history) and cap the
+  // total; keys sort chronologically as strings (pad2 invariant).
+  function pruneWeeks(plan) {
+    const cutoff = H().addWeeks(H().isoWeekKey(new Date()), -WEEK_KEEP_PAST);
+    if (cutoff) plan.weeks = plan.weeks.filter((w) => w.id >= cutoff);
+    if (plan.weeks.length > LOCAL_WEEK_CAP) {
+      plan.weeks = plan.weeks.slice().sort((a, b) => H().cmpStr(a.id, b.id)).slice(-LOCAL_WEEK_CAP);
+    }
+  }
+
+  // Upsert one week's plan. `days` must be a FRESH object (mergeRecord copies
+  // records shallowly — in-place mutation would alias merged state). An empty
+  // days object with a newer updatedAt is the tombstone; there is no deletedAt.
+  function saveWeek(plan, weekId, days) {
+    if (!H().weekStartDate(weekId)) return false;
+    const now = nowSec();
+    const existing = plan.weeks.find((w) => w.id === weekId);
+    if (existing) {
+      existing.days = days;
+      existing.updatedAt = now;
+    } else {
+      plan.weeks.push({ id: weekId, days, createdAt: now, updatedAt: now });
+    }
+    plan.updatedAt = now;
+    pruneWeeks(plan);
+    return savePlan(plan);
+  }
+
   function getMe(planId) {
     return H().safeLocalStorageGetItem(K.me(planId)) || "";
   }
@@ -263,7 +301,7 @@
     const obj = H().safeParse(H().safeLocalStorageGetItem(K.backup(planId)));
     if (!obj || !validPlanShape(obj.plan)) return null;
     if (!Number.isFinite(obj.at) || Date.now() - obj.at > BACKUP_TTL_MS) return null;
-    return obj.plan;
+    return normalizePlan(obj.plan);
   }
 
   function clearBackup(planId) {
@@ -283,6 +321,9 @@
     loadActivePlan,
     savePlan,
     createPlan,
+    normalizePlan,
+    pruneWeeks,
+    saveWeek,
     maxSeqForDevice,
     newEvent,
     appendEvents,

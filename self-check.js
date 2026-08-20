@@ -781,6 +781,93 @@
       else H().safeLocalStorageSetItem(S().K.plans, planIndexBefore);
     }
 
+    // --- device identity: resolveMe ---
+    {
+      const plan = mkPlan({
+        people: [mkPerson("pa01", "Anna"), mkPerson("pb02", "Bea", { deletedAt: 1700000001 })],
+      });
+      S().savePlan(plan);
+      check("resolveMe: nothing set → null", S().resolveMe(plan, "") === null);
+      S().setMe(SC_PLAN, "pa01");
+      const viaMe = S().resolveMe(plan, "");
+      check("resolveMe: remembered me → person", !!viaMe && viaMe.id === "pa01");
+      const viaDeadCreds = S().resolveMe(plan, "pb02");
+      check("resolveMe: deleted creds fall through to me", !!viaDeadCreds && viaDeadCreds.id === "pa01");
+      S().setMe(SC_PLAN, "pb02");
+      check("resolveMe: deleted me → null", S().resolveMe(plan, "") === null);
+      S().setMe(SC_PLAN, "ghost");
+      check("resolveMe: unknown me → null", S().resolveMe(plan, "") === null);
+      plan.people.push(mkPerson("pc03", "Cem"));
+      S().setMe(SC_PLAN, "pa01");
+      const viaCreds = S().resolveMe(plan, "pc03");
+      check("resolveMe: live creds outrank me", !!viaCreds && viaCreds.id === "pc03");
+      S().setMe(SC_PLAN, "");
+    }
+
+    // --- one-tap check-in: instantCheckin minting path ---
+    if (PZ.uiViews && PZ.uiViews.instantCheckin) {
+      const IC_NOW = 1799999999999; // fixed clock — model takes nowMs everywhere
+      const area = mkArea("scar1", "Küche", 7);
+      const mkFresh = () =>
+        mkPlan({ areas: [area], people: [mkPerson("pa01", "Anna"), mkPerson("pd04", "Timo")] });
+      let plan = mkFresh();
+      S().savePlan(plan);
+      check("instant: no me → nome", PZ.uiViews.instantCheckin(plan, area, IC_NOW, {}).status === "nome");
+      S().setMe(SC_PLAN, "pa01");
+      const ok1 = PZ.uiViews.instantCheckin(plan, area, IC_NOW, {});
+      check("instant: ok with me", ok1.status === "ok" && ok1.person.id === "pa01");
+      check("instant: ts minute-quantized", ok1.status === "ok" && ok1.ev.ts % 60000 === 0);
+      check(
+        "instant: event id carries this device key",
+        ok1.status === "ok" &&
+          H().parseCompactEventId(ok1.ev.id) &&
+          ok1.ev.id.startsWith(`${S().getDeviceKey()}.`),
+      );
+      check(
+        "instant: event persisted",
+        S().loadPlan(SC_PLAN).events.some((e) => e.id === ok1.ev.id),
+      );
+      check(
+        "instant: repeat inside window → already",
+        PZ.uiViews.instantCheckin(S().loadPlan(SC_PLAN), area, IC_NOW + 60000, {}).status === "already",
+      );
+      // Someone ELSE cleaned 1h ago → cooldown; force overrides; 7h → free.
+      plan = mkFresh();
+      plan.events = [mkEvent("scdev.1", "scar1", "pd04", Math.floor((IC_NOW - 3600000) / 60000))];
+      S().savePlan(plan);
+      const cold = PZ.uiViews.instantCheckin(plan, area, IC_NOW, {});
+      check("instant: 1h-old foreign event → cooldown", cold.status === "cooldown" && cold.recent.personId === "pd04");
+      const forced = PZ.uiViews.instantCheckin(S().loadPlan(SC_PLAN), area, IC_NOW, { force: true });
+      check("instant: force overrides cooldown", forced.status === "ok");
+      plan = mkFresh();
+      plan.events = [mkEvent("scdev.2", "scar1", "pd04", Math.floor((IC_NOW - 7 * 3600000) / 60000))];
+      S().savePlan(plan);
+      check(
+        "instant: 7h-old event → no cooldown",
+        PZ.uiViews.instantCheckin(plan, area, IC_NOW, {}).status === "ok",
+      );
+      // Quota failure must roll back — nothing half-written.
+      plan = mkFresh();
+      S().savePlan(plan);
+      const evCountBefore = plan.events.length;
+      const realSet = PZ.helpers.safeLocalStorageSetItem;
+      PZ.helpers.safeLocalStorageSetItem = () => false; // simulate quota failure
+      const failed = PZ.uiViews.instantCheckin(plan, area, IC_NOW, {});
+      PZ.helpers.safeLocalStorageSetItem = realSet;
+      check("instant: quota failure → failed", failed.status === "failed");
+      check("instant: rollback keeps plan.events intact", plan.events.length === evCountBefore);
+      // Undo path: removeEvent deletes the minted event again.
+      const plan2 = S().loadPlan(SC_PLAN);
+      const ok2 = PZ.uiViews.instantCheckin(plan2, area, IC_NOW, {});
+      check(
+        "instant: undo removes the event",
+        ok2.status === "ok" &&
+          S().removeEvent(S().loadPlan(SC_PLAN), ok2.ev.id) === true &&
+          !S().loadPlan(SC_PLAN).events.some((e) => e.id === ok2.ev.id),
+      );
+      S().setMe(SC_PLAN, "");
+    }
+
     cleanup();
     const result = { ok: errors.length === 0, checks, errors };
     console.log(`putzii self-check: ${checks - errors.length}/${checks} ok`, errors.length ? errors : "");

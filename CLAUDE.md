@@ -70,6 +70,12 @@ backend, no dependencies (qrcodegen.js is vendored). UI German, code English.
 12. The service worker must never answer requests outside its own scope
    (the drop state lives on the SAME origin) nor `cache:"no-store"`
    requests — both bypasses live at the top of the fetch handler.
+13. Drop pin coupling: putzii-drop executes `share.js`/`model.js`/
+   `helpers.js` (+ `dropcrypto.js` parity) at a PINNED commit. Any change
+   to these files ends with `dropii pin --ref <sha>` in the SAME unit of
+   work. A stale runner refuses envelopes with wire slots it doesn't know
+   (fatal `wire-unknown-slots` — never silently strips them), and the
+   drop's daily `driftcheck` workflow tests against putzii@main.
 
 ## Dev loop
 

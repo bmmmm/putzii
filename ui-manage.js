@@ -81,6 +81,27 @@
     touch(plan);
   }
 
+  // Delete without a confirm dialog: the undo toast is the safety net.
+  // Safe because reactivate writes a NEWER updatedAt, so the undo wins the
+  // LWW config merge (invariant 2) even against an already-shared delete.
+  function softDeleteWithUndo(plan, record, kind, label) {
+    softDelete(plan, record);
+    H().showToast(`„${label}" entfernt.`, {
+      label: "Rückgängig",
+      onClick: () => {
+        // The closure's objects are stale after refresh() — reload and
+        // re-find by id.
+        const fresh = S().loadActivePlan();
+        if (!fresh) return;
+        const list = kind === "area" ? fresh.areas : fresh.people;
+        const rec = list.find((r) => r.id === record.id);
+        if (!rec) return;
+        reactivate(fresh, rec);
+        saveAndRefresh(fresh);
+      },
+    }, 8000);
+  }
+
   function renderAreaList(plan) {
     const list = document.getElementById("area-list");
     list.textContent = "";
@@ -104,6 +125,7 @@
       });
       const intervalInput = document.createElement("input");
       intervalInput.type = "number";
+      intervalInput.inputMode = "numeric";
       intervalInput.min = "1";
       intervalInput.max = "365";
       intervalInput.value = String(area.intervalDays);
@@ -123,7 +145,7 @@
       del.type = "button";
       del.className = "btn btn-small btn-danger";
       del.textContent = "Löschen";
-      del.addEventListener("click", () => softDelete(plan, area));
+      del.addEventListener("click", () => softDeleteWithUndo(plan, area, "area", area.name));
       li.appendChild(nameInput);
       li.appendChild(intervalInput);
       li.appendChild(document.createTextNode("Tage"));
@@ -135,14 +157,28 @@
   function renderPeopleList(plan) {
     const list = document.getElementById("people-list");
     list.textContent = "";
+    const meId = S().getMe(plan.planId);
     for (const person of M().livePeople(plan)) {
       const li = document.createElement("li");
       li.appendChild(Object.assign(document.createElement("span"), { className: "grow", textContent: person.name }));
+      // Device identity toggle — feeds the one-tap check-in paths.
+      const meBtn = document.createElement("button");
+      meBtn.type = "button";
+      meBtn.className = "chip" + (meId === person.id ? " selected" : "");
+      meBtn.textContent = meId === person.id ? "Das bin ich ✓" : "Das bin ich";
+      meBtn.setAttribute("aria-pressed", meId === person.id ? "true" : "false");
+      meBtn.addEventListener("click", () => {
+        const on = S().getMe(plan.planId) === person.id;
+        S().setMe(plan.planId, on ? "" : person.id);
+        H().showToast(on ? "Gerät vergisst dich." : `Dieses Gerät trägt jetzt als ${person.name} ein.`);
+        if (PZ.ui) PZ.ui.refresh();
+      });
+      li.appendChild(meBtn);
       const del = document.createElement("button");
       del.type = "button";
       del.className = "btn btn-small btn-danger";
       del.textContent = "Entfernen";
-      del.addEventListener("click", () => softDelete(plan, person));
+      del.addEventListener("click", () => softDeleteWithUndo(plan, person, "person", person.name));
       li.appendChild(del);
       list.appendChild(li);
     }
@@ -188,6 +224,15 @@
     }
   }
 
+  // Enter in a form field triggers its add/submit button.
+  function submitOnEnter(inputId, buttonId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") document.getElementById(buttonId).click();
+    });
+  }
+
   function init() {
     document.getElementById("btn-area-add").addEventListener("click", () => {
       const plan = S().loadActivePlan();
@@ -196,6 +241,9 @@
       const intervalEl = document.getElementById("new-area-interval");
       addArea(plan, nameEl.value, Number(intervalEl.value));
       nameEl.value = "";
+      // Setup sessions add area after area — render() rebuilds only the
+      // lists, never this static row, so focus survives.
+      nameEl.focus();
     });
     document.getElementById("btn-person-add").addEventListener("click", () => {
       const plan = S().loadActivePlan();
@@ -203,7 +251,12 @@
       const nameEl = document.getElementById("new-person-name");
       if (addPerson(plan, nameEl.value)) saveAndRefresh(plan);
       nameEl.value = "";
+      nameEl.focus();
     });
+    submitOnEnter("new-area-name", "btn-area-add");
+    submitOnEnter("new-area-interval", "btn-area-add");
+    submitOnEnter("new-person-name", "btn-person-add");
+    submitOnEnter("plan-name", "btn-plan-rename");
     document.getElementById("btn-plan-rename").addEventListener("click", () => {
       const plan = S().loadActivePlan();
       if (!plan) return;

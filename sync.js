@@ -163,6 +163,53 @@
     throw fail("net");
   }
 
+  // One-shot check-in dispatch for #k1. confirm links: no local plan, no
+  // state machine — the WORKFLOW mints the event (mode=checkin). Returns the
+  // nonce; confirmation = the nonce appearing in the health tail (awaitNonce).
+  async function checkinDispatch(creds, areaId) {
+    const nonce = H().randomId(8);
+    let res;
+    try {
+      res = await _fetch(D().dispatchUrl(creds), {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer " + creds.pat,
+          Accept: "application/vnd.github+json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ref: "main",
+          inputs: {
+            mode: "checkin",
+            planId: creds.planId,
+            personId: creds.personId,
+            token: creds.token,
+            nonce,
+            payload: areaId,
+          },
+        }),
+      });
+    } catch (e) {
+      throw fail("net");
+    }
+    if (res.status === 204) return nonce;
+    // fine-grained PATs answer 404 for repos they cannot reach
+    if (res.status === 401 || res.status === 403 || res.status === 404) throw fail("authfail");
+    throw fail("net");
+  }
+
+  // Poll the health tail until the nonce appears. Defaults cover the measured
+  // dispatch→pages latency (~35 s) with headroom; opts are test seams.
+  async function awaitNonce(creds, nonce, opts) {
+    const tries = (opts && opts.tries) || 24;
+    const delayMs = opts && opts.delayMs !== undefined ? opts.delayMs : 5000;
+    for (let i = 0; i < tries; i++) {
+      if (await nonceConfirmed(creds, nonce)) return true;
+      if (i < tries - 1) await new Promise((r) => setTimeout(r, delayMs));
+    }
+    return false;
+  }
+
   // The main entry. reason is for humans/tests; opts.planId overrides the
   // active plan (c.html knows its plan explicitly).
   async function tick(reason, opts) {
@@ -275,6 +322,8 @@
 
   PZ.sync = {
     tick,
+    checkinDispatch,
+    awaitNonce,
     markDirty,
     status,
     connected,

@@ -469,6 +469,7 @@
       check("classify bad checkin", PZ.router.classifyHash("#c1.x.<img>").kind === "unknown");
       check("classify oversized", PZ.router.classifyHash("#" + "p1." + "a".repeat(600000)).kind === "unknown");
       check("classify drop", PZ.router.classifyHash("#d1.abc").kind === "drop");
+      check("classify confirm", PZ.router.classifyHash("#k1.abc").kind === "confirm");
     }
 
     // --- GitHub drop: crypto, d1 links, state payload, sync machine ---
@@ -512,6 +513,48 @@
         PZ.drop.parseCredentialFragment("d1.!!!") === null &&
           PZ.drop.parseCredentialFragment("d1." + H().base64UrlEncodeBytes(H().utf8Encode("[2]"))) === null &&
           PZ.drop.parseCredentialFragment("p1.abc") === null,
+      );
+
+      // k1 confirm link: round-trip (no encKey travels), label fallback, junk
+      const k1frag =
+        "k1." +
+        H().base64UrlEncodeBytes(
+          H().utf8Encode(
+            JSON.stringify([
+              1, DP, "scp1", "Testy", creds.token, creds.pat, creds.repo, creds.dropBase,
+              [["da2k", "Küche"], ["db3m", ""]],
+            ]),
+          ),
+        );
+      const parsedK1 = PZ.drop.parseCheckinFragment(k1frag);
+      check(
+        "k1 roundtrip",
+        parsedK1 &&
+          parsedK1.planId === DP &&
+          parsedK1.personId === "scp1" &&
+          parsedK1.personName === "Testy" &&
+          parsedK1.encKey === undefined &&
+          deepEqual(parsedK1.areas, [
+            { areaId: "da2k", label: "Küche" },
+            { areaId: "db3m", label: "db3m" },
+          ]),
+      );
+      const k1With = (areas) =>
+        PZ.drop.parseCheckinFragment(
+          "k1." +
+            H().base64UrlEncodeBytes(
+              H().utf8Encode(
+                JSON.stringify([1, DP, "scp1", "T", creds.token, creds.pat, creds.repo, creds.dropBase, areas]),
+              ),
+            ),
+        );
+      check(
+        "k1 junk rejected",
+        PZ.drop.parseCheckinFragment("k1.!!!") === null &&
+          PZ.drop.parseCheckinFragment("d1.abc") === null &&
+          k1With([]) === null &&
+          k1With([["DA_01!", "x"]]) === null &&
+          k1With(Array.from({ length: 13 }, () => ["da2k", "x"])) === null,
       );
 
       // credential storage + disconnect cleanup
@@ -695,6 +738,32 @@
       env.dispatchStatus = 401;
       st = await PZ.sync.tick("t", { planId: DP });
       check("sync 401 → authfail", st.state === "error" && st.error === "authfail");
+      env.dispatchStatus = 204;
+
+      // k1 confirm flow: one-shot checkin dispatch + nonce confirmation —
+      // no local plan involved, the stub records the exact wire body.
+      env.netFail = false;
+      env.dispatches.length = 0;
+      const k1nonce = await PZ.sync.checkinDispatch(parsedK1, "da2k");
+      const k1body = env.dispatches[0] || { inputs: {} };
+      check(
+        "checkin dispatch body shape",
+        env.dispatches.length === 1 &&
+          k1body.ref === "main" &&
+          k1body.inputs.mode === "checkin" &&
+          k1body.inputs.planId === DP &&
+          k1body.inputs.personId === "scp1" &&
+          k1body.inputs.token === creds.token &&
+          k1body.inputs.payload === "da2k" &&
+          k1body.inputs.nonce === k1nonce &&
+          /^[a-z2-9]{8}$/.test(k1nonce),
+      );
+      env.health.tail = [];
+      check("awaitNonce times out honestly", (await PZ.sync.awaitNonce(parsedK1, k1nonce, { tries: 2, delayMs: 0 })) === false);
+      env.health.tail = [{ at: "", by: "scp1", nonce: k1nonce, run: "9", rev: 9, counts: {} }];
+      check("awaitNonce confirms", (await PZ.sync.awaitNonce(parsedK1, k1nonce, { tries: 1, delayMs: 0 })) === true);
+      env.dispatchStatus = 403;
+      await throws("checkin dispatch 403 → authfail", () => PZ.sync.checkinDispatch(parsedK1, "da2k"));
       env.dispatchStatus = 204;
 
       // no creds → off

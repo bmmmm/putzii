@@ -18,6 +18,8 @@
     // Drop credential link: carries a PAT — app.js strips it from the URL
     // bar FIRST, decoding happens in drop.js.
     if (frag.startsWith("d1.")) return { kind: "drop", frag };
+    // Pre-scoped confirm link (also carries a PAT) — c.html owns the flow.
+    if (frag.startsWith("k1.")) return { kind: "confirm", frag };
     if (frag.startsWith("c1.")) {
       const m = frag.match(/^c1\.([A-Za-z0-9_-]{1,32})\.([a-z2-9]{1,16})$/);
       if (!m) return { kind: "unknown" };

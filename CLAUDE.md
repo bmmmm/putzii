@@ -21,12 +21,12 @@ backend, no dependencies (qrcodegen.js is vendored). UI German, code English.
 | `store.js` | Plan docs in localStorage, event minting, atomic append + rollback, `saveWeek` |
 | `model.js` | Pure due/status/history logic + KW duty plan (everything takes `nowMs`) |
 | `dropcrypto.js` | AES-256-GCM state crypto — core line-identical with putzii-drop's runner (CI-pinned) |
-| `drop.js` | `#d1.` credential links, per-plan cred storage, drop URL builders |
+| `drop.js` | `#d1.` credential links, `#k1.` confirm links (no encKey), per-plan cred storage, drop URL builders |
 | `sync.js` | Drop sync state machine (off/idle/…/queued/error), injectable `_fetch`/`_now` seams |
 | `ui-weeks.js` | Wochen tab: endless KW list, day-cell strip, inline slot editor (index-only) |
-| `ui-checkin.js` + `c.html` | QR check-in mini page incl. cold path (no plan on device) |
+| `ui-checkin.js` + `c.html` | QR check-in mini page incl. cold path (no plan on device) + `#k1.` confirm page (server-minted, no local plan) |
 | `app.js` | index boot: hash classify, merge-on-open, pending banner |
-| `router.js` | Hash prefixes: `p1./p1u.` share, `c1.<planId>.<areaId>` check-in, routes |
+| `router.js` | Hash prefixes: `p1./p1u.` share, `c1.<planId>.<areaId>` check-in, `d1.`/`k1.` drop links, routes |
 | `self-check.js` | In-browser suite: `await PZ.selfCheck.run()` in the console |
 
 ## Invariants — do not break

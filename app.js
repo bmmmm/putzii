@@ -169,6 +169,10 @@
         // Area QRs land on c.html; someone hand-typed this here — forward.
         location.replace(`c.html#c1.${c.planId}.${c.areaId}`);
         break;
+      case "confirm":
+        // k1 confirm links target c.html — forward, fragment intact.
+        location.replace(`c.html#${c.frag}`);
+        break;
       case "route": {
         const name = c.name === "verwalten" && viewMode() === "view" ? "uebersicht" : c.name;
         PZ.router.showView(name);

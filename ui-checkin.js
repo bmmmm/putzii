@@ -427,6 +427,48 @@
     boot();
   }
 
+  // #k1. confirm page: pre-scoped activities, one tap per confirmation. No
+  // local plan, no storage — the link IS the context, the server mints the
+  // event. The fragment stays in the URL: reopening from Signal must work,
+  // and the server side is replay-safe (nonce + idempotency window).
+  function renderConfirm(creds) {
+    const c = card();
+    c.appendChild(el("h2", "", "Erledigt melden"));
+    c.appendChild(el("p", "muted", `Als ${creds.personName} — antippen, was erledigt ist:`));
+    for (const area of creds.areas) {
+      const btn = el("button", "btn btn-primary big-confirm", `${area.label} ✓`);
+      btn.type = "button";
+      const line = el("p", "muted", "");
+      btn.addEventListener("click", () => {
+        btn.disabled = true;
+        line.textContent = "Wird gesendet…";
+        PZ.sync
+          .checkinDispatch(creds, area.areaId)
+          .then((nonce) => {
+            line.textContent = "Gesendet — warte auf Bestätigung…";
+            return PZ.sync.awaitNonce(creds, nonce);
+          })
+          .then((ok) => {
+            if (ok) {
+              line.textContent = "Bestätigt ✓ — ist im Plan vermerkt.";
+            } else {
+              btn.disabled = false;
+              line.textContent = "Keine Bestätigung erhalten — Tätigkeit existiert evtl. nicht mehr, oder später nochmal versuchen.";
+            }
+          })
+          .catch((e) => {
+            btn.disabled = false;
+            line.textContent =
+              e && e.kind === "authfail"
+                ? "Zugang abgelehnt — dieser Link wurde vermutlich zurückgezogen."
+                : "Nicht erreichbar — offline? Später nochmal versuchen.";
+          });
+      });
+      c.appendChild(btn);
+      c.appendChild(line);
+    }
+  }
+
   function boot() {
     S().ensureSchema();
     const c = PZ.router
@@ -435,6 +477,15 @@
     if (c.kind === "share") {
       // A share link opened on c.html — index.html owns that flow.
       location.replace(`index.html${location.hash}`);
+      return;
+    }
+    if (c.kind === "confirm") {
+      const creds = PZ.drop.parseCheckinFragment(c.frag);
+      if (!creds) {
+        renderError("Dieser Bestätigungs-Link ist beschädigt.", "Link nochmal aus dem Chat öffnen.");
+        return;
+      }
+      renderConfirm(creds);
       return;
     }
     if (c.kind !== "checkin") {
@@ -468,6 +519,7 @@
     if (!frag) return { kind: "empty" };
     if (frag.length > H().MAX_HASH_CHARS) return { kind: "unknown" };
     if (frag.startsWith("p1.") || frag.startsWith("p1u.")) return { kind: "share", frag };
+    if (frag.startsWith("k1.")) return { kind: "confirm", frag };
     const m = frag.match(/^c1\.([A-Za-z0-9_-]{1,32})\.([a-z2-9]{1,16})$/);
     if (m) return { kind: "checkin", planId: m[1], areaId: m[2] };
     return { kind: "unknown" };

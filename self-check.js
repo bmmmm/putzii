@@ -468,6 +468,248 @@
       check("classify checkin", deepEqual(PZ.router.classifyHash("#c1.AbC123-_.k3f9"), { kind: "checkin", planId: "AbC123-_", areaId: "k3f9" }));
       check("classify bad checkin", PZ.router.classifyHash("#c1.x.<img>").kind === "unknown");
       check("classify oversized", PZ.router.classifyHash("#" + "p1." + "a".repeat(600000)).kind === "unknown");
+      check("classify drop", PZ.router.classifyHash("#d1.abc").kind === "drop");
+    }
+
+    // --- GitHub drop: crypto, d1 links, state payload, sync machine ---
+    // Runs entirely against a fetch stub — the suite needs NO network.
+    if (PZ.drop && PZ.sync && PZ.dropcrypto && typeof crypto !== "undefined" && crypto.subtle) {
+      const DP = "SELFDRP0";
+      const dropCleanup = () => {
+        H().safeLocalStorageRemoveItem(S().K.plan(DP));
+        H().safeLocalStorageRemoveItem(S().K.drop(DP));
+        H().safeLocalStorageRemoveItem(S().K.dropstate(DP));
+      };
+      dropCleanup();
+      const planIndexBefore = H().safeLocalStorageGetItem(S().K.plans);
+
+      const keyBytes = new Uint8Array(32).map((_, i) => (i * 13 + 7) & 255);
+      const encKey = H().base64UrlEncodeBytes(keyBytes);
+      const creds = {
+        v: 1,
+        planId: DP,
+        personId: "scp1",
+        personName: "Testy",
+        token: "t".repeat(22),
+        encKey,
+        pat: "github_pat_selfcheck",
+        repo: "x/y-drop",
+        dropBase: "https://drop.example/site",
+      };
+
+      // d1 link round-trip + junk
+      const d1frag =
+        "d1." +
+        H().base64UrlEncodeBytes(
+          H().utf8Encode(
+            JSON.stringify([1, DP, "scp1", "Testy", creds.token, encKey, creds.pat, creds.repo, creds.dropBase]),
+          ),
+        );
+      const parsedCreds = PZ.drop.parseCredentialFragment(d1frag);
+      check("d1 roundtrip", parsedCreds && deepEqual(parsedCreds, creds));
+      check(
+        "d1 junk rejected",
+        PZ.drop.parseCredentialFragment("d1.!!!") === null &&
+          PZ.drop.parseCredentialFragment("d1." + H().base64UrlEncodeBytes(H().utf8Encode("[2]"))) === null &&
+          PZ.drop.parseCredentialFragment("p1.abc") === null,
+      );
+
+      // credential storage + disconnect cleanup
+      check("creds store roundtrip", PZ.drop.acceptCredentials(creds) && deepEqual(Object.assign({}, PZ.drop.getCreds(DP), { addedAt: 0 }), Object.assign({}, creds, { addedAt: 0 })));
+      PZ.drop.disconnect(DP);
+      check("disconnect cleans up", PZ.drop.getCreds(DP) === null && H().safeLocalStorageGetItem(S().K.dropstate(DP)) === null);
+      PZ.drop.acceptCredentials(creds);
+
+      // dropcrypto: roundtrip, tamper, AAD binding
+      const stateKey = await PZ.dropcrypto.importStateKey(keyBytes);
+      const plainMsg = H().utf8Encode("drop state bytes");
+      const encd = await PZ.dropcrypto.encryptState(stateKey, DP, plainMsg);
+      check(
+        "dropcrypto roundtrip",
+        H().utf8Decode(await PZ.dropcrypto.decryptState(stateKey, DP, encd.iv, encd.ct)) === "drop state bytes",
+      );
+      const tampered = encd.ct.slice();
+      tampered[0] ^= 1;
+      await throws("dropcrypto tamper throws", () => PZ.dropcrypto.decryptState(stateKey, DP, encd.iv, tampered));
+      await throws("dropcrypto AAD binds planId", () => PZ.dropcrypto.decryptState(stateKey, "OTHER", encd.iv, encd.ct));
+      const stateText = JSON.stringify({
+        v: 1,
+        alg: "A256GCM",
+        iv: H().base64UrlEncodeBytes(encd.iv),
+        ct: H().base64UrlEncodeBytes(encd.ct),
+        rev: 4,
+        at: "2026-08-20T12:00:00.000Z",
+      });
+      const parsedState = PZ.dropcrypto.parseStateFile(stateText);
+      check("statefile roundtrip", parsedState && parsedState.rev === 4 && parsedState.ct.length === encd.ct.length);
+      check("statefile rejects junk", PZ.dropcrypto.parseStateFile("{}") === null && PZ.dropcrypto.parseStateFile("x") === null);
+
+      // uncapped state payload: 300 events (> SHARE_EVENT_CAP) survive
+      const bigDropPlan = mkPlan({
+        planId: DP,
+        areas: [mkArea("da01", "Küche", 7)],
+        people: [mkPerson("dp01", "Testy")],
+        events: Array.from({ length: 300 }, (_, i) => mkEvent(`dd.${(i + 1).toString(36)}`, "da01", "dp01", 29785000 + i)),
+      });
+      const payloadB64 = await PZ.share.encodeStatePayload(bigDropPlan);
+      const payloadPlan = await PZ.share.decodeStatePayload(H().base64UrlDecodeBytes(payloadB64));
+      check("state payload uncapped", payloadPlan.events.length === 300);
+
+      // fitPayload: tiny budget shrinks but per-area anchors survive
+      const fitted = await PZ.share.fitPayload(bigDropPlan, 500, (cap, weeks) =>
+        PZ.share.encodeStatePayload(bigDropPlan, cap, weeks),
+      );
+      check("fitPayload shrinks with anchors", fitted.sharedEvents >= 1 && fitted.sharedEvents < 300);
+
+      // --- sync state machine against a fetch stub ---
+      let fakeNow = 1787136000000;
+      PZ.sync._setNow(() => fakeNow);
+      const remoteEvent = mkEvent("gdrop.1", "da01", "dp01", 29785500);
+      const remotePlan = mkPlan({
+        planId: DP,
+        areas: [mkArea("da01", "Küche", 7)],
+        people: [mkPerson("dp01", "Testy")],
+        events: [remoteEvent],
+      });
+      async function makeStateBody(plan, rev, key) {
+        const gz = await H().gzipCompress(
+          H().utf8Encode(JSON.stringify(PZ.share.wireFromPlan(plan, plan.events.length, false))),
+        );
+        const enc = await PZ.dropcrypto.encryptState(key || stateKey, DP, gz);
+        return JSON.stringify({
+          v: 1,
+          alg: "A256GCM",
+          iv: H().base64UrlEncodeBytes(enc.iv),
+          ct: H().base64UrlEncodeBytes(enc.ct),
+          rev,
+          at: "2026-08-20T12:00:00.000Z",
+        });
+      }
+      const env = {
+        stateBody: await makeStateBody(remotePlan, 5),
+        stateStatus: 200,
+        health: { rev: 5, at: "", lastRunId: "", tail: [] },
+        dispatchStatus: 204,
+        dispatches: [],
+        netFail: false,
+        fetchOpts: [],
+      };
+      PZ.sync._reset();
+      PZ.sync._setFetch(async (url, opts) => {
+        env.fetchOpts.push({ url, opts });
+        if (env.netFail) throw new TypeError("offline");
+        if (url === PZ.drop.stateUrl(creds)) {
+          return { ok: env.stateStatus === 200, status: env.stateStatus, text: async () => env.stateBody };
+        }
+        if (url === PZ.drop.healthUrl(creds)) {
+          return { ok: true, status: 200, text: async () => JSON.stringify(env.health) };
+        }
+        if (url === PZ.drop.dispatchUrl(creds)) {
+          env.dispatches.push(JSON.parse(opts.body));
+          return { ok: env.dispatchStatus === 204, status: env.dispatchStatus, text: async () => "" };
+        }
+        throw new Error("unexpected url " + url);
+      });
+
+      // pull merges, never dirties, never pushes
+      let st = await PZ.sync.tick("test-pull", { planId: DP });
+      const pulledPlan = S().loadPlan(DP);
+      check("sync pull merges remote", pulledPlan && pulledPlan.events.some((e) => e.id === "gdrop.1"));
+      check("sync pull never dirty", st.state === "idle" && st.dirty === false && env.dispatches.length === 0);
+      check(
+        "sync pull uses no-store",
+        env.fetchOpts.every((f) => !f.opts || f.opts.method === "POST" || (f.opts && f.opts.cache === "no-store")),
+      );
+
+      // mutation → dispatch with the right body shape; dirty until confirmed
+      PZ.sync.markDirty(DP);
+      st = await PZ.sync.tick("test-push", { planId: DP });
+      check("sync push dispatches once", env.dispatches.length === 1 && st.state === "sent" && st.dirty === true);
+      const body = env.dispatches[0] || { inputs: {} };
+      check(
+        "dispatch body shape",
+        body.ref === "main" &&
+          body.inputs.mode === "envelope" &&
+          body.inputs.planId === DP &&
+          body.inputs.personId === "scp1" &&
+          body.inputs.token === creds.token &&
+          /^[a-z2-9]{8}$/.test(body.inputs.nonce) &&
+          typeof body.inputs.payload === "string" &&
+          body.inputs.payload.length > 0,
+      );
+
+      // nonce confirmation clears dirty
+      env.health.tail = [{ at: "2026-08-20T12:01:00.000Z", by: "scp1", nonce: body.inputs.nonce, run: "1", rev: 6, counts: {} }];
+      env.stateBody = await makeStateBody(remotePlan, 6);
+      st = await PZ.sync.tick("test-confirm", { planId: DP });
+      check("sync nonce confirm clears dirty", st.state === "idle" && st.dirty === false && st.pending === false);
+
+      // exactly ONE re-dispatch, then queued
+      env.health.tail = [];
+      PZ.sync.markDirty(DP);
+      await PZ.sync.tick("t", { planId: DP }); // dispatch #2 (new push)
+      fakeNow += 6 * 60000;
+      await PZ.sync.tick("t", { planId: DP }); // pull 1 — unconfirmed
+      await PZ.sync.tick("t", { planId: DP }); // pull 2
+      st = await PZ.sync.tick("t", { planId: DP }); // pull 3 → re-dispatch (#3)
+      check("sync re-dispatches once", env.dispatches.length === 3 && st.state === "sent");
+      fakeNow += 6 * 60000;
+      await PZ.sync.tick("t", { planId: DP });
+      await PZ.sync.tick("t", { planId: DP });
+      st = await PZ.sync.tick("t", { planId: DP });
+      check("sync queued after re-dispatch", env.dispatches.length === 3 && st.state === "queued");
+
+      // rev monotony + stale detection
+      const recBefore = H().safeParse(H().safeLocalStorageGetItem(S().K.dropstate(DP)));
+      env.stateBody = await makeStateBody(remotePlan, 3); // older than known rev
+      await PZ.sync.tick("t", { planId: DP });
+      await PZ.sync.tick("t", { planId: DP });
+      st = await PZ.sync.tick("t", { planId: DP });
+      const recAfter = H().safeParse(H().safeLocalStorageGetItem(S().K.dropstate(DP)));
+      check(
+        "sync rev never sinks + stale hint",
+        recBefore && recAfter && recAfter.lastRev >= recBefore.lastRev && st.stale === true,
+      );
+
+      // error mapping: 404, keymismatch, auth, offline-queue
+      const freshRec = () => {
+        H().safeLocalStorageRemoveItem(S().K.dropstate(DP));
+      };
+      freshRec();
+      env.stateStatus = 404;
+      st = await PZ.sync.tick("t", { planId: DP });
+      check("sync 404 → notfound", st.state === "error" && st.error === "notfound");
+      env.stateStatus = 200;
+      const wrongKey = await PZ.dropcrypto.importStateKey(new Uint8Array(32).map((_, i) => i + 1));
+      env.stateBody = await makeStateBody(remotePlan, 7, wrongKey);
+      st = await PZ.sync.tick("t", { planId: DP });
+      check("sync wrong key → keymismatch", st.state === "error" && st.error === "keymismatch");
+      env.stateBody = await makeStateBody(remotePlan, 7);
+      env.netFail = true;
+      st = await PZ.sync.tick("t", { planId: DP });
+      check("sync net fail clean → error", st.state === "error" && st.error === "net");
+      PZ.sync.markDirty(DP);
+      st = await PZ.sync.tick("t", { planId: DP });
+      check("sync net fail dirty → queued", st.state === "queued");
+      env.netFail = false;
+      env.dispatchStatus = 401;
+      st = await PZ.sync.tick("t", { planId: DP });
+      check("sync 401 → authfail", st.state === "error" && st.error === "authfail");
+      env.dispatchStatus = 204;
+
+      // no creds → off
+      PZ.sync._reset();
+      PZ.drop.disconnect(DP);
+      st = await PZ.sync.tick("t", { planId: DP });
+      check("sync without creds → off", st.state === "off");
+
+      // restore reality
+      PZ.sync._setFetch((url, opts) => fetch(url, opts));
+      PZ.sync._setNow(null);
+      PZ.sync._reset();
+      dropCleanup();
+      if (planIndexBefore === null) H().safeLocalStorageRemoveItem(S().K.plans);
+      else H().safeLocalStorageSetItem(S().K.plans, planIndexBefore);
     }
 
     cleanup();

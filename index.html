@@ -17,7 +17,7 @@
     <meta name="robots" content="noindex, nofollow" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'none';"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://api.github.com https://*.github.io; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'none';"
     />
     <title>putzii – Putzplan</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
@@ -110,6 +110,20 @@
       </section>
 
       <section id="view-teilen" hidden>
+        <h2>Automatisch synchron (Drop)</h2>
+        <p id="drop-status" class="muted"></p>
+        <div class="share-actions">
+          <button id="btn-drop-sync" class="btn" hidden>Jetzt synchronisieren</button>
+          <button id="btn-drop-disconnect" class="btn" hidden>Drop trennen</button>
+        </div>
+        <div class="honesty-note">
+          <strong>Wer deinen Zugangs-Link hat, kann alles.</strong> Den ganzen Plan lesen —
+          auch die Vergangenheit — und unter jedem Namen eintragen (nachvollziehbar im
+          Protokoll). Der Link ist dein Schlüssel: nur persönlich weitergeben, wie einen
+          Wohnungsschlüssel. Links teilen weiter wie bisher — der Drop ist nur der
+          Briefkasten, der nie schläft.
+        </div>
+
         <h2>Teilen</h2>
         <p id="share-stats" class="muted"></p>
         <div class="share-actions">
@@ -166,6 +180,9 @@
     <script src="store.js"></script>
     <script src="model.js"></script>
     <script src="share.js"></script>
+    <script src="dropcrypto.js"></script>
+    <script src="drop.js"></script>
+    <script src="sync.js"></script>
     <script src="router.js"></script>
     <script src="ui-weeks.js"></script>
     <script src="ui-views.js"></script>

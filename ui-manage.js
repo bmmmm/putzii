@@ -16,6 +16,9 @@
       H().showToast("Speichern fehlgeschlagen — Speicher voll?");
       return;
     }
+    // USER mutation callsite — deliberately not inside savePlan: a
+    // merge-triggered save must never mark the drop dirty (ping-pong).
+    if (PZ.sync) PZ.sync.markDirty(plan.planId);
     if (PZ.ui) PZ.ui.refresh();
   }
 

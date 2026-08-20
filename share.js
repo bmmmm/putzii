@@ -301,30 +301,41 @@
     return "p1." + H().base64UrlEncodeBytes(gz);
   }
 
-  // Build the full share URL with the adaptive event cap: shrink by 0.7 until
-  // the URL fits the green budget or only the per-area anchors remain; if
-  // STILL over budget, shrink the week window. Returns the honest counts so
-  // the UI can always say "Teilt X von Y Einträgen · N von M Wochen".
-  async function buildShareUrl(plan, opts) {
-    const viewer = !!(opts && opts.viewer);
-    const base = baseDirUrl();
-    const now = Date.now();
+  // Generic adaptive shrink: try the full payload, then shrink the event cap
+  // by 0.7 steps (per-area anchors always survive), then the week window,
+  // until makeFrag's output fits the budget. makeFrag(cap, weeks) → string.
+  async function fitPayload(plan, budget, makeFrag, nowMs) {
+    const now = Number.isFinite(nowMs) ? nowMs : Date.now();
     let weeks = selectShareWeeks(plan, now);
     let cap = SHARE_EVENT_CAP;
-    const overBudget = (f) => base.length + 1 + f.length > URL_BUDGET_GREEN;
-    let frag = await encodeWire(wireFromPlan(plan, cap, viewer, weeks));
+    let frag = await makeFrag(cap, weeks);
     let shared = selectShareEvents(plan, cap).length;
-    for (let i = 0; i < 8 && overBudget(frag) && cap > 0; i++) {
+    for (let i = 0; i < 8 && frag.length > budget && cap > 0; i++) {
       cap = Math.floor(cap * 0.7);
-      frag = await encodeWire(wireFromPlan(plan, cap, viewer, weeks));
+      frag = await makeFrag(cap, weeks);
       shared = selectShareEvents(plan, cap).length;
       if (cap === 0) break;
     }
     for (const h of [12, 6, 2, 0]) {
-      if (!overBudget(frag)) break;
+      if (frag.length <= budget) break;
       weeks = selectShareWeeks(plan, now, h);
-      frag = await encodeWire(wireFromPlan(plan, cap, viewer, weeks));
+      frag = await makeFrag(cap, weeks);
     }
+    return { frag, cap, weeks, sharedEvents: shared };
+  }
+
+  // Build the full share URL with the adaptive event cap. Returns the honest
+  // counts so the UI can always say "Teilt X von Y Einträgen · N von M Wochen".
+  async function buildShareUrl(plan, opts) {
+    const viewer = !!(opts && opts.viewer);
+    const base = baseDirUrl();
+    const fitted = await fitPayload(
+      plan,
+      URL_BUDGET_GREEN - base.length - 1,
+      (cap, weeks) => encodeWire(wireFromPlan(plan, cap, viewer, weeks)),
+    );
+    const { frag, weeks } = fitted;
+    const shared = fitted.sharedEvents;
     const url = `${base}#${frag}`;
     const band = url.length <= URL_BUDGET_GREEN ? "green" : url.length <= URL_BUDGET_AMBER ? "amber" : "red";
     return {
@@ -335,6 +346,25 @@
       sharedWeeks: weeks.length,
       totalWeeks: (plan.weeks || []).length,
     };
+  }
+
+  // --- GitHub-drop state payload (uncapped envelope, no "p1." prefix) ---
+
+  // Dispatch payload: gzip(wire) as bare base64url. Uncapped — the whole
+  // plan travels; the drop's 64 kB dispatch budget is enforced by the caller
+  // via fitPayload when a plan ever gets that big.
+  async function encodeStatePayload(plan, cap, weeks) {
+    const c = Number.isFinite(cap) ? cap : plan.events.length;
+    const wire = wireFromPlan(plan, c, false, weeks || plan.weeks || []);
+    const gz = await H().gzipCompress(H().utf8Encode(JSON.stringify(wire)));
+    return H().base64UrlEncodeBytes(gz);
+  }
+
+  // Decrypted state-file plaintext (gzip bytes) → sanitized plan. Runs
+  // through planFromWire, the same sanitizer as hostile links.
+  async function decodeStatePayload(gzBytes) {
+    const json = H().utf8Decode(await H().gzipDecompress(gzBytes));
+    return planFromWire(JSON.parse(json)).plan;
   }
 
   // Decode a "#p1./#p1u." fragment payload (without the leading "#").
@@ -420,7 +450,10 @@
     wireFromPlan,
     planFromWire,
     mergePlans,
+    fitPayload,
     buildShareUrl,
+    encodeStatePayload,
+    decodeStatePayload,
     decodeShareFragment,
     serializeFile,
     parseFile,

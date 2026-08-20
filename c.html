@@ -14,7 +14,7 @@
     <meta name="robots" content="noindex, nofollow" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'none';"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://api.github.com https://*.github.io; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'none';"
     />
     <title>putzii – Check-in</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
@@ -38,6 +38,9 @@
     <script src="store.js"></script>
     <script src="model.js"></script>
     <script src="share.js"></script>
+    <script src="dropcrypto.js"></script>
+    <script src="drop.js"></script>
+    <script src="sync.js"></script>
     <script src="ui-checkin.js"></script>
     <script src="sw-register.js"></script>
   </body>

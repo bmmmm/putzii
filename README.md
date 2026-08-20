@@ -1,9 +1,11 @@
 # putzii
 
-Minimaler Putzplan als Web-App — **kein Backend, kein Server, kein Account**.
+Minimaler Putzplan als Web-App — **kein eigener Server, kein Account**.
 Der komplette Plan lebt im Browser (localStorage) und wird als Link geteilt:
 Der Zustand steckt gzip-komprimiert im URL-Fragment (`#p1.…`) und erreicht
-nie einen Server. Check-in vor Ort per QR-Code am Putzbereich.
+nie einen Server. Check-in vor Ort per QR-Code am Putzbereich. Optional
+synct ein [GitHub-Drop](https://github.com/bmmmm/putzii-drop) automatisch —
+GitHub Actions als Briefkasten, der Plan liegt dort nur AES-256-verschlüsselt.
 
 **Live:** https://bmmmm.github.io/putzii/
 
@@ -26,6 +28,12 @@ nie einen Server. Check-in vor Ort per QR-Code am Putzbereich.
   werden). Alternativ: Plan als JSON-Datei exportieren/importieren.
 - **Nur-Ansicht-Link**: blendet die Verwaltung aus — reine UX-Hürde, kein
   Schutz (siehe unten).
+- **Drop-Sync (optional, v2)**: Ein persönlicher Zugangs-Link (`#d1.…`)
+  verbindet das Gerät mit einem [putzii-drop](https://github.com/bmmmm/putzii-drop):
+  Check-ins und Plan-Änderungen wandern automatisch über GitHub Actions zu
+  allen verbundenen Geräten — Ende-zu-Ende über denselben `mergePlans`-Pfad
+  wie Links. Der Drop ist nur ein weiterer Peer, der nie schläft; `#p1.`-Links
+  bleiben der vollwertige Offline-/Fallback-Weg.
 
 ## Sicherheit — ehrlich gesagt
 
@@ -35,6 +43,18 @@ Anmeldung, keinen Admin und keinen Widerruf; das geht ohne Server nicht.
 Dafür gilt: Das Fragment (`#…`) wird nie an einen Server übertragen — auch
 GitHub Pages sieht nur den Pfad, nie die Daten. Teile den Link nur mit Leuten,
 die den Plan sehen dürfen.
+
+**Der Drop-Zugangs-Link (`#d1.…`) ist ein Schlüssel.** Wer ihn hat, liest
+ALLES inklusive Vergangenheit (der Schlüssel plus die öffentliche
+verschlüsselte Historie) und schreibt unbegrenzt — unter jedem Namen,
+nachvollziehbar im Klartext-Protokoll (health-Tail). Nicht möglich:
+Repo-Inhalte ändern, Secrets lesen, Workflows manipulieren. Widerruf:
+`dropii user revoke` (Schreiben, Sekunden) · `dropii rotate key` (Lesen,
+Minuten, neue Links) · PAT widerrufen (alle Writes sofort). Ehrliche
+Restrisiken: GitHub sieht den Klartext im Actions-RAM; die verschlüsselte
+Historie ist dauerhaft öffentlich (nur `dropii compact` löscht Vergangenheit);
+der Zugangs-QR am Kühlschrank IST der Schlüssel. Household-Trust-Werkzeug,
+kein Security-Produkt.
 
 ## Lokal ausprobieren
 
@@ -51,8 +71,9 @@ await PZ.selfCheck.run()
 
 ## Grenzen (bewusste Entscheidungen)
 
-- Sync ist manuell: Ohne „Update teilen" sieht das Team nichts. Der Badge
-  „· N neu" erinnert daran.
+- Ohne Drop ist Sync manuell: Ohne „Update teilen" sieht das Team nichts.
+  Der Badge „· N neu" erinnert daran (bei gesundem Drop übernimmt der Drop
+  und der Zähler verschwindet).
 - Share-Links sind auf ~1.800 Zeichen budgetiert (Signal-Limit); bei großen
   Verläufen wird die geteilte Historie automatisch gekürzt — die App zeigt
   immer „Teilt X von Y Einträgen". Der Datei-Export enthält immer alles.

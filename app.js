@@ -124,11 +124,46 @@
     PZ.router.showView("uebersicht");
   }
 
+  // A #d1. link carries the write token AND the PAT: strip it from the URL
+  // bar BEFORE any await — nothing may keep showing or re-processing it.
+  function handleDropFragment(frag) {
+    PZ.router.replaceHash("teilen");
+    const creds = PZ.drop.parseCredentialFragment(frag);
+    if (!creds) {
+      H().showToast("Drop-Link konnte nicht gelesen werden.");
+      PZ.router.showView("uebersicht");
+      return;
+    }
+    if (!PZ.drop.acceptCredentials(creds)) {
+      H().showToast("Speichern fehlgeschlagen — Speicher voll?");
+      PZ.router.showView("uebersicht");
+      return;
+    }
+    S().registerPlan(creds.planId, true);
+    // The link is personal: remember who this device belongs to.
+    const plan = S().loadPlan(creds.planId);
+    if (plan && plan.people.some((p) => p.id === creds.personId)) {
+      S().setMe(creds.planId, creds.personId);
+    }
+    H().showToast(`Drop verbunden — du bist ${creds.personName} ✓`);
+    PZ.router.showView("teilen");
+    PZ.sync.tick("drop-link", { planId: creds.planId }).then(() => {
+      const me = S().loadPlan(creds.planId);
+      if (me && me.people.some((p) => p.id === creds.personId)) {
+        S().setMe(creds.planId, creds.personId);
+      }
+      refresh();
+    });
+  }
+
   function handleHash() {
     const c = PZ.router.classifyHash(location.hash);
     switch (c.kind) {
       case "share":
         handleShareFragment(c.frag);
+        break;
+      case "drop":
+        handleDropFragment(c.frag);
         break;
       case "checkin":
         // Area QRs land on c.html; someone hand-typed this here — forward.
@@ -153,7 +188,13 @@
     PZ.uiManage.init();
     PZ.uiShare.init();
     window.addEventListener("hashchange", handleHash);
+    PZ.sync.initTriggers();
+    PZ.sync.onChanged = () => {
+      PZ.uiShare.renderDropStatus();
+      PZ.uiShare.updateBadge();
+    };
     handleHash();
+    PZ.sync.tick("boot");
   }
 
   PZ.app = { applyRemotePlan, refresh };

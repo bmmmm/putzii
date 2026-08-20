@@ -48,6 +48,8 @@
       H().showToast("Speichern fehlgeschlagen — Speicher voll?");
       return false;
     }
+    // USER mutation callsite — not in saveWeek/savePlan (merge ping-pong).
+    if (PZ.sync) PZ.sync.markDirty(plan.planId);
     PZ.uiShare.notifyDataChanged();
     return true;
   }

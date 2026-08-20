@@ -17,9 +17,12 @@ backend, no dependencies (qrcodegen.js is vendored). UI German, code English.
 
 | File | Role |
 |---|---|
-| `share.js` | Wire codec (`#p1.` fragment), adaptive event cap, week window, `mergePlans` — the heart |
+| `share.js` | Wire codec (`#p1.` fragment), adaptive `fitPayload`, week window, `mergePlans`, `encode/decodeStatePayload` — the heart |
 | `store.js` | Plan docs in localStorage, event minting, atomic append + rollback, `saveWeek` |
 | `model.js` | Pure due/status/history logic + KW duty plan (everything takes `nowMs`) |
+| `dropcrypto.js` | AES-256-GCM state crypto — core line-identical with putzii-drop's runner (CI-pinned) |
+| `drop.js` | `#d1.` credential links, per-plan cred storage, drop URL builders |
+| `sync.js` | Drop sync state machine (off/idle/…/queued/error), injectable `_fetch`/`_now` seams |
 | `ui-weeks.js` | Wochen tab: endless KW list, day-cell strip, inline slot editor (index-only) |
 | `ui-checkin.js` + `c.html` | QR check-in mini page incl. cold path (no plan on device) |
 | `app.js` | index boot: hash classify, merge-on-open, pending banner |
@@ -35,8 +38,12 @@ backend, no dependencies (qrcodegen.js is vendored). UI German, code English.
 3. Event `ts` is minute-quantized at creation (wire round-trip lossless).
 4. Event ids are `<deviceKey>.<seq-base36>` — compare seq NUMERICALLY
    (`cmpEventId`), lexical compare breaks at base36 width boundaries.
-5. The fragment never reaches a server; no external requests at all
-   (CSP `connect-src 'none'`). Never add a CDN/font/analytics reference.
+5. The `#p1.`/`#c1.`/`#d1.` fragment never reaches a server. Since v2 the
+   ONLY allowed network calls are the GitHub drop's: CSP `connect-src 'self'
+   https://api.github.com https://*.github.io` (api = workflow dispatch,
+   *.github.io = encrypted state pull — also covers local dev and foreign
+   households running their own drop). Never widen it further; never add a
+   CDN/font/analytics reference.
 6. Share URL budget 1800 chars (Signal). The UI must always show honest
    counts ("Teilt X von Y Einträgen") when history is capped.
 7. Any APP_SHELL asset change requires a `VERSION` bump in
@@ -54,6 +61,15 @@ backend, no dependencies (qrcodegen.js is vendored). UI German, code English.
 10. The wire envelope's slots are APPEND-ONLY (weeks = index 9, no version
    bump): never reorder or retype an existing index; new data goes at the
    end. Bump WIRE_VERSION only for structurally incompatible changes.
+11. Drop sync: a pull that merges remote data NEVER sets dirty (two clients
+   would ping-pong). `markDirty` lives at USER mutation callsites
+   (saveAndRefresh, saveDays, confirmCheckin) — never inside
+   savePlan/saveWeek. Write confirmation = nonce in the drop's health tail;
+   dirty clears only if no mutation arrived after the dispatch
+   (`dirtySince <= pendingAt`).
+12. The service worker must never answer requests outside its own scope
+   (the drop state lives on the SAME origin) nor `cache:"no-store"`
+   requests — both bypasses live at the top of the fetch handler.
 
 ## Dev loop
 
@@ -64,11 +80,11 @@ python3 -m http.server 8080   # local dev
 - Verify = `await PZ.selfCheck.run()` in the browser console → `{ok: true}`.
 - **SW cache trap** (from db-wallet): after editing a file, the re-registering
   SW can re-cache the STALE copy via the browser HTTP cache. db-wallet's
-  `fetch(file, {cache:"reload"})` workaround does NOT work here — CSP
-  `connect-src 'none'` blocks page-context fetch (verified 2026-08-19). Fix:
-  hard reload (Cmd+Shift+R), serve on a fresh port, or DevTools "Disable
-  cache". Plain Cmd+R serves stale CSS/JS from the heuristic HTTP cache even
-  without a SW.
+  `fetch(file, {cache:"reload"})` workaround was not usable here while CSP
+  was `connect-src 'none'` (verified 2026-08-19; since v2 'self' would allow
+  it, but the robust fixes below remain the convention). Fix: hard reload
+  (Cmd+Shift+R), serve on a fresh port, or DevTools "Disable cache". Plain
+  Cmd+R serves stale CSS/JS from the heuristic HTTP cache even without a SW.
 - Native dialogs (`alert`/`confirm`) freeze automation — the app never uses
   them; keep it that way.
 - No sitemap.xml on purpose: the app is `noindex` (robots meta is what works

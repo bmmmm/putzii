@@ -13,6 +13,8 @@
     uimode: (id) => `putzii:uimode:${id}`,
     pending: "putzii:pending",
     backup: (id) => `putzii:backup:${id}`,
+    drop: (id) => `putzii:drop:${id}`,
+    dropstate: (id) => `putzii:dropstate:${id}`,
   };
 
   const LOCAL_EVENT_CAP = 2000;

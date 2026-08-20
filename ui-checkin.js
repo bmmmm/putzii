@@ -138,7 +138,8 @@
   function renderPersonPicker(c, plan, area) {
     c.appendChild(el("p", "", "Wer hat geputzt?"));
     const grid = el("div", "person-grid");
-    const me = S().getMe(plan.planId);
+    const creds = PZ.drop ? PZ.drop.getCreds(plan.planId) : null;
+    const me = S().getMe(plan.planId) || (creds ? creds.personId : "");
     // Current-week duty for this area: that person sorts first with a
     // "geplant" hint — never auto-selected.
     const now = Date.now();
@@ -194,6 +195,13 @@
 
     confirmBtn.addEventListener("click", () => confirmCheckin(plan, area));
     c.appendChild(confirmBtn);
+
+    // Personal drop link on this device: pre-select its person — the grid
+    // stays visible so covering for someone else is one tap away.
+    if (creds) {
+      const mine = people.find((p) => p.id === creds.personId);
+      if (mine) select(mine.id, mine.name);
+    }
   }
 
   function confirmCheckin(plan, area) {
@@ -213,6 +221,9 @@
       H().showToast("Speichern fehlgeschlagen — Speicher voll?");
       return;
     }
+    // Drop push AFTER the local write — the QR flow is the reason c.html
+    // loads sync.js at all.
+    if (PZ.sync && PZ.sync.connected(plan.planId)) PZ.sync.markDirty(plan.planId);
     S().setMe(plan.planId, person.id);
     const pending = S().getPending();
     if (pending && pending.planId === plan.planId && pending.areaId === area.id) {
@@ -264,7 +275,21 @@
         undoBtn.textContent = `Rückgängig (${remaining})`;
       }, 1000);
     }
-    c.appendChild(el("p", "muted", "Ohne Teilen sehen die anderen den Eintrag nicht."));
+    if (PZ.sync && PZ.sync.connected(plan.planId)) {
+      const dropLine = el("p", "muted", "Drop: wird gesendet…");
+      dropLine.id = "checkin-drop-line";
+      c.appendChild(dropLine);
+      PZ.sync.onChanged = (st) => {
+        const line = document.getElementById("checkin-drop-line");
+        if (!line) return;
+        if (st.state === "sent") line.textContent = "Drop ✓ gesendet — landet gleich bei allen.";
+        else if (st.state === "idle" && !st.dirty) line.textContent = "Drop ✓ synchron.";
+        else if (st.state === "queued") line.textContent = "Drop: wird nachgeholt, sobald online.";
+        else if (st.state === "error") line.textContent = "Drop nicht erreichbar — Eintrag ist lokal gesichert.";
+      };
+    } else {
+      c.appendChild(el("p", "muted", "Ohne Teilen sehen die anderen den Eintrag nicht."));
+    }
     const link = el("a", "", "Zur Übersicht");
     link.href = "index.html#uebersicht";
     c.appendChild(link);
@@ -312,11 +337,13 @@
     c.appendChild(
       el("p", "", "Der QR-Code gehört zu einem Plan, den dieses Gerät noch nicht kennt."),
     );
-    c.appendChild(el("p", "", "① Öffne den Team-Link (z. B. aus eurem Chat) — oder füge ihn hier ein:"));
+    c.appendChild(
+      el("p", "", "① Öffne den Team-Link oder deinen persönlichen Zugangs-Link (z. B. aus eurem Chat) — oder füge ihn hier ein:"),
+    );
     const row = el("div", "form-row");
     const input = document.createElement("input");
     input.type = "text";
-    input.placeholder = "https://…#p1.…";
+    input.placeholder = "https://…#p1.… oder …#d1.…";
     const openBtn = el("button", "btn btn-primary", "Öffnen");
     openBtn.type = "button";
     openBtn.addEventListener("click", () => importFromText(input.value));
@@ -350,6 +377,23 @@
 
   function importFromText(raw) {
     const text = String(raw || "");
+    // Personal drop link: connect, pull the plan from the drop, continue.
+    const d = text.match(/#(d1\.[A-Za-z0-9_-]+)/);
+    if (d) {
+      const creds = PZ.drop.parseCredentialFragment(d[1]);
+      if (!creds || !PZ.drop.acceptCredentials(creds)) {
+        H().showToast("Zugangs-Link konnte nicht gelesen werden.");
+        return;
+      }
+      S().registerPlan(creds.planId, true);
+      S().setMe(creds.planId, creds.personId);
+      H().showToast("Drop verbunden — Plan wird geladen…");
+      PZ.sync.tick("cold-path", { planId: creds.planId }).then((st) => {
+        if (S().loadPlan(creds.planId)) boot();
+        else if (st && st.state === "error") H().showToast("Drop nicht erreichbar — später erneut versuchen.");
+      });
+      return;
+    }
     const m = text.match(/#(p1u?\.[A-Za-z0-9_-]+)/);
     if (!m) {
       H().showToast("Kein putzii-Link erkannt.");

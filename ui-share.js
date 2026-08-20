@@ -106,6 +106,7 @@
 
   function renderTeilen() {
     renderTeilenStats();
+    renderDropStatus();
     const wrap = document.getElementById("share-qr-wrap");
     if (wrap) wrap.hidden = true;
     const ta = document.getElementById("share-fallback");
@@ -244,11 +245,59 @@
       return;
     }
     btn.hidden = false;
+    // With a HEALTHY drop the counter disappears — the drop distributes
+    // updates, nagging would lie. In error/off/queued the old behavior
+    // returns unchanged: the fallback must not feel broken.
+    const drop = PZ.sync ? PZ.sync.status(plan.planId) : { state: "off" };
+    const healthy = ["idle", "sent", "pulling", "pushing"].includes(drop.state);
+    if (healthy) {
+      count.hidden = true;
+      return;
+    }
     // Week planning must nudge a re-share just like check-ins do.
     const sharedAt = S().getLastSharedAt(plan.planId);
     const n = M().unsharedCount(plan, sharedAt) + M().unsharedWeekCount(plan, sharedAt);
     count.hidden = n === 0;
     count.textContent = n > 0 ? `· ${n} neu` : "";
+  }
+
+  // --- GitHub-drop section on the Teilen tab ---
+
+  function dropStatusText(st) {
+    let text;
+    if (st.state === "off") {
+      text = "Kein Drop verbunden — öffne deinen persönlichen Zugangs-Link.";
+    } else if (st.state === "error" && st.error === "authfail") {
+      text = "Zugang abgelaufen — neuen Link anfordern.";
+    } else if (st.state === "error" && st.error === "keymismatch") {
+      text = "Schlüssel passt nicht — Link erneuern.";
+    } else if (st.state === "error" && st.error === "notfound") {
+      text = "Drop noch nicht eingerichtet — kein Plan-Stand gefunden.";
+    } else if (st.state === "error") {
+      text = "Drop nicht erreichbar.";
+    } else if (st.state === "queued") {
+      text = "Änderungen werden nachgeholt, sobald der Drop erreichbar ist.";
+    } else if (st.state === "sent") {
+      text = "Gesendet — wartet auf Bestätigung…";
+    } else if (st.state === "pulling" || st.state === "pushing") {
+      text = "Synchronisiere…";
+    } else {
+      text = st.dirty ? "Drop verbunden — lokale Änderungen ausstehend." : "Drop ✓ synchron.";
+    }
+    if (st.stale) text += " Drop antwortet mit altem Stand.";
+    return text;
+  }
+
+  function renderDropStatus() {
+    const statusEl = document.getElementById("drop-status");
+    if (!statusEl) return;
+    const st = PZ.sync.status();
+    statusEl.textContent = dropStatusText(st);
+    const connected = st.state !== "off";
+    const syncBtn = document.getElementById("btn-drop-sync");
+    const discBtn = document.getElementById("btn-drop-disconnect");
+    if (syncBtn) syncBtn.hidden = !connected;
+    if (discBtn) discBtn.hidden = !connected;
   }
 
   function notifyDataChanged() {
@@ -272,8 +321,32 @@
       ev.target.value = "";
     });
     document.getElementById("btn-print").addEventListener("click", () => window.print());
+    const dropSync = document.getElementById("btn-drop-sync");
+    if (dropSync) {
+      dropSync.addEventListener("click", () => {
+        PZ.sync.tick("manual");
+        renderDropStatus();
+      });
+    }
+    const dropDisc = document.getElementById("btn-drop-disconnect");
+    if (dropDisc) {
+      dropDisc.addEventListener("click", () => {
+        PZ.sync.disconnect();
+        H().showToast("Drop getrennt — der Plan bleibt auf diesem Gerät.");
+        renderDropStatus();
+        updateBadge();
+      });
+    }
     notifyDataChanged();
   }
 
-  PZ.uiShare = { init, renderTeilen, renderQrSheet, updateBadge, notifyDataChanged, shareVia };
+  PZ.uiShare = {
+    init,
+    renderTeilen,
+    renderQrSheet,
+    updateBadge,
+    notifyDataChanged,
+    shareVia,
+    renderDropStatus,
+  };
 })();

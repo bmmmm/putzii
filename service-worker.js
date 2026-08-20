@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-const VERSION = "putzii-v1.1-2026-08-19a";
+const VERSION = "putzii-v2.0-2026-08-20a";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -20,6 +20,9 @@ const APP_SHELL = [
   "./ui-share.js",
   "./ui-checkin.js",
   "./app.js",
+  "./dropcrypto.js",
+  "./drop.js",
+  "./sync.js",
   "./self-check.js",
   "./sw-register.js",
 ];
@@ -43,6 +46,12 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  // Never touch requests outside our own directory: the drop state lives on
+  // the SAME origin (…github.io/putzii-drop/) and a cache-first hit would
+  // freeze it forever. Scope-based, so any same-origin drop path is safe.
+  if (!url.pathname.startsWith(new URL(self.registration.scope).pathname)) return;
+  // Explicit no-store (the sync read path) must never come from a cache.
+  if (req.cache === "no-store") return;
 
   const isHtml = req.mode === "navigate" || (req.headers.get("accept") || "").includes("text/html");
 

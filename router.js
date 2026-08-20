@@ -15,6 +15,9 @@
     if (!frag) return { kind: "empty" };
     if (frag.length > H().MAX_HASH_CHARS) return { kind: "unknown" };
     if (frag.startsWith("p1.") || frag.startsWith("p1u.")) return { kind: "share", frag };
+    // Drop credential link: carries a PAT — app.js strips it from the URL
+    // bar FIRST, decoding happens in drop.js.
+    if (frag.startsWith("d1.")) return { kind: "drop", frag };
     if (frag.startsWith("c1.")) {
       const m = frag.match(/^c1\.([A-Za-z0-9_-]{1,32})\.([a-z2-9]{1,16})$/);
       if (!m) return { kind: "unknown" };

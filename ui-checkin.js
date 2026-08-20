@@ -167,7 +167,15 @@
       const btn = el("button", "btn", person.id === planned ? `${person.name} · geplant` : person.name);
       btn.type = "button";
       btn.dataset.person = person.id;
-      btn.addEventListener("click", () => select(person.id, person.name));
+      btn.addEventListener("click", () => {
+        // Remember only on an explicit tap — the auto-preselect path below
+        // must neither write nor toast.
+        if (S().getMe(plan.planId) !== person.id) {
+          S().setMe(plan.planId, person.id);
+          H().showToast(`Als ${person.name} gemerkt — änderbar unter Verwalten.`);
+        }
+        select(person.id, person.name);
+      });
       grid.appendChild(btn);
     }
     const other = el("button", "btn", "+ Anderer Name");
@@ -196,12 +204,11 @@
     confirmBtn.addEventListener("click", () => confirmCheckin(plan, area));
     c.appendChild(confirmBtn);
 
-    // Personal drop link on this device: pre-select its person — the grid
-    // stays visible so covering for someone else is one tap away.
-    if (creds) {
-      const mine = people.find((p) => p.id === creds.personId);
-      if (mine) select(mine.id, mine.name);
-    }
+    // Known identity on this device (drop credential beats remembered
+    // pick): pre-select — the grid stays visible so covering for someone
+    // else is one tap away.
+    const mine = S().resolveMe(plan, creds ? creds.personId : "");
+    if (mine) select(mine.id, mine.name);
   }
 
   function confirmCheckin(plan, area) {
@@ -347,6 +354,9 @@
     const openBtn = el("button", "btn btn-primary", "Öffnen");
     openBtn.type = "button";
     openBtn.addEventListener("click", () => importFromText(input.value));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") importFromText(input.value);
+    });
     row.appendChild(input);
     row.appendChild(openBtn);
     c.appendChild(row);

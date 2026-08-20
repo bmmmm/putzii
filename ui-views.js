@@ -13,6 +13,82 @@
     return node;
   }
 
+  // One-tap check-in from the overview card, as the remembered device
+  // person. DOM-free so self-check can drive it. Mirrors ui-checkin.js
+  // confirmCheckin step for step — change the two together.
+  function instantCheckin(plan, area, nowMs, opts) {
+    const o = opts || {};
+    const person = S().resolveMe(plan, "");
+    if (!person) return { status: "nome" };
+    if (M().existsRecent(plan, area.id, person.id, nowMs)) return { status: "already", person };
+    if (!o.force) {
+      const recent = M().recentByAnyone(plan, area.id, nowMs);
+      if (recent) return { status: "cooldown", recent, person };
+    }
+    const ev = S().newEvent(plan, area.id, person.id, nowMs);
+    if (!S().appendEvents(plan, [ev])) return { status: "failed" };
+    // Invariant 11: markDirty lives HERE, at the user mutation callsite —
+    // never inside savePlan/appendEvents.
+    if (PZ.sync && PZ.sync.connected(plan.planId)) PZ.sync.markDirty(plan.planId);
+    const pending = S().getPending();
+    if (pending && pending.planId === plan.planId && pending.areaId === area.id) {
+      S().clearPending();
+    }
+    return { status: "ok", ev, person };
+  }
+
+  // Undo deliberately does NOT markDirty: events merge append-only
+  // first-seen-wins, so a dirty push would just re-deliver the event —
+  // same known limitation as c.html's undo button.
+  function undoInstant(planId, evId) {
+    const plan = S().loadPlan(planId);
+    if (plan && S().removeEvent(plan, evId)) H().showToast("Eintrag entfernt.");
+    PZ.ui.refresh();
+  }
+
+  function onInstantTap(planId, areaId) {
+    // Always reload — refresh() has replaced the render-time plan object.
+    const plan = S().loadPlan(planId);
+    const area = plan && M().areaById(plan, areaId);
+    if (!plan || !area) return;
+    const now = Date.now();
+    const res = instantCheckin(plan, area, now, {});
+    if (res.status === "ok") {
+      H().showToast(`${area.name} ✓ — ${res.person.name}`, {
+        label: "Rückgängig",
+        onClick: () => undoInstant(planId, res.ev.id),
+      }, 60000);
+      PZ.ui.refresh();
+    } else if (res.status === "cooldown") {
+      const who = M().personName(plan, res.recent.personId);
+      const when = H().formatRelPast(M().effTs(res.recent.ts, now), now);
+      H().showToast(`Bereits ${when} von ${who} erledigt.`, {
+        label: "Trotzdem",
+        onClick: () => {
+          const fresh = S().loadPlan(planId);
+          const freshArea = fresh && M().areaById(fresh, areaId);
+          if (!fresh || !freshArea) return;
+          const r2 = instantCheckin(fresh, freshArea, Date.now(), { force: true });
+          if (r2.status === "ok") {
+            H().showToast(`${freshArea.name} ✓ — ${r2.person.name}`, {
+              label: "Rückgängig",
+              onClick: () => undoInstant(planId, r2.ev.id),
+            }, 60000);
+          }
+          PZ.ui.refresh();
+        },
+      });
+    } else if (res.status === "already") {
+      H().showToast("Schon eingetragen.");
+      PZ.ui.refresh();
+    } else if (res.status === "failed") {
+      H().showToast("Speichern fehlgeschlagen — Speicher voll?");
+    } else {
+      // no usable identity after all — fall back to the picker page
+      location.href = `c.html#c1.${planId}.${areaId}`;
+    }
+  }
+
   // Current-week duty card: "KW 34 · wer muss diese Woche was machen".
   // Read-only on purpose — the card summarises, the Wochen tab edits.
   function renderWeekCard(container, plan, now) {
@@ -42,7 +118,18 @@
     } else {
       card.appendChild(el("p", "muted", "Noch keine Putztage geplant — antippen zum Planen."));
     }
+    // A div, not a button — it legally contains the tasks <ul>. Give it
+    // the full button contract instead.
+    card.setAttribute("role", "button");
+    card.tabIndex = 0;
+    card.setAttribute("aria-label", "Wochenplan öffnen");
     card.addEventListener("click", () => PZ.router.go("wochen"));
+    card.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        PZ.router.go("wochen");
+      }
+    });
     container.appendChild(card);
   }
 
@@ -57,6 +144,7 @@
     if (!plan || !rows.length) return;
     const now = Date.now();
     renderWeekCard(container, plan, now);
+    const me = S().resolveMe(plan, "");
     for (const row of rows) {
       const card = el("div", `card status-${row.status}`);
       const left = el("div");
@@ -68,10 +156,19 @@
         : `Noch nie geputzt · alle ${row.area.intervalDays} Tage`;
       left.appendChild(el("p", "last-line", lastText));
       card.appendChild(left);
-      // Same flow as the printed QR — the sticker is just a shortcut to this.
-      const btn = el("a", "btn", "✓ Eintragen");
-      btn.href = `c.html#c1.${plan.planId}.${row.area.id}`;
-      card.appendChild(btn);
+      if (me) {
+        // Device knows who you are: check in right here, one tap.
+        const btn = el("button", "btn btn-primary", "✓ Geputzt");
+        btn.type = "button";
+        btn.setAttribute("aria-label", `${row.area.name} als ${me.name} eintragen`);
+        btn.addEventListener("click", () => onInstantTap(plan.planId, row.area.id));
+        card.appendChild(btn);
+      } else {
+        // Same flow as the printed QR — the sticker is just a shortcut to this.
+        const btn = el("a", "btn", "✓ Eintragen");
+        btn.href = `c.html#c1.${plan.planId}.${row.area.id}`;
+        card.appendChild(btn);
+      }
       container.appendChild(card);
     }
   }
@@ -126,5 +223,5 @@
     if (filter) filter.addEventListener("change", renderVerlauf);
   }
 
-  PZ.uiViews = { renderUebersicht, renderVerlauf, init };
+  PZ.uiViews = { renderUebersicht, renderVerlauf, init, instantCheckin };
 })();

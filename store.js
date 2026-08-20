@@ -258,6 +258,14 @@
     H().safeLocalStorageSetItem(K.me(planId), personId);
   }
 
+  // Who this device checks in as by default. A personal drop credential
+  // beats the remembered pick; a deleted or unknown person resolves to
+  // null so callers fall back to the explicit picker.
+  function resolveMe(plan, credsPersonId) {
+    const live = (id) => id && (plan.people || []).find((p) => p.id === id && !p.deletedAt);
+    return live(credsPersonId) || live(getMe(plan.planId)) || null;
+  }
+
   function getUiMode(planId) {
     return H().safeLocalStorageGetItem(K.uimode(planId)) === "view" ? "view" : "";
   }
@@ -333,6 +341,7 @@
     trimEvents,
     getMe,
     setMe,
+    resolveMe,
     getUiMode,
     setUiMode,
     getLastSharedAt,

@@ -8,7 +8,8 @@
       name="description"
       content="putzii — minimaler Putzplan. Kein Backend, kein Server: geteilt per Link, Check-in per QR, alles lokal."
     />
-    <meta name="theme-color" content="#0f766e" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#0f766e" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#101615" />
     <meta name="color-scheme" content="dark light" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -28,9 +29,15 @@
   <body>
     <header class="app-header">
       <h1><a href="#uebersicht" class="brand">putzii</a></h1>
-      <button id="btn-share-header" class="btn btn-primary btn-small" hidden>
-        Update teilen<span id="share-badge-count" class="badge" hidden></span>
-      </button>
+      <div class="header-actions">
+        <button id="btn-share-header" class="btn btn-primary btn-small" hidden>
+          Update teilen<span id="share-badge-count" class="badge" hidden></span>
+        </button>
+        <!-- Always visible: the only path to Teilen on a fresh install
+             (share button stays hidden until the plan has data) and in
+             view mode — never hide it. -->
+        <a id="link-teilen" class="btn btn-small" href="#teilen" aria-label="Teilen, QR und Daten">⋯</a>
+      </div>
     </header>
 
     <div id="banner-pending" class="banner" hidden>
@@ -43,7 +50,6 @@
       <a href="#wochen" data-route="wochen">Wochen</a>
       <a href="#verlauf" data-route="verlauf">Verlauf</a>
       <a href="#verwalten" data-route="verwalten" data-hide-in-view-mode>Verwalten</a>
-      <a href="#teilen" data-route="teilen">Teilen</a>
     </nav>
 
     <main>
@@ -91,7 +97,7 @@
           <label for="new-area-name" class="sr-only">Neuer Bereich</label>
           <input id="new-area-name" type="text" maxlength="40" placeholder="z. B. Küche" />
           <label for="new-area-interval" class="sr-only">Intervall in Tagen</label>
-          <input id="new-area-interval" type="number" min="1" max="365" value="7" title="Intervall in Tagen" />
+          <input id="new-area-interval" type="number" inputmode="numeric" autocomplete="off" min="1" max="365" value="7" title="Intervall in Tagen" />
           <button id="btn-area-add" class="btn btn-primary">+ Bereich</button>
         </div>
 
@@ -106,6 +112,11 @@
         <h2>Neuer Plan</h2>
         <div class="form-row">
           <button id="btn-plan-create" class="btn">Weiteren Plan anlegen</button>
+        </div>
+
+        <h2>Teilen &amp; Daten</h2>
+        <div class="form-row">
+          <a class="btn" href="#teilen">Teilen, QR &amp; Daten →</a>
         </div>
       </section>
 

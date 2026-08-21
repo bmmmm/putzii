@@ -476,6 +476,7 @@
     // Runs entirely against a fetch stub — the suite needs NO network.
     if (PZ.drop && PZ.sync && PZ.dropcrypto && typeof crypto !== "undefined" && crypto.subtle) {
       const DP = "SELFDRP0";
+      const FOREIGN = "SELFACT0"; // stands in for the user's real active plan
       const dropCleanup = () => {
         H().safeLocalStorageRemoveItem(S().K.plan(DP));
         H().safeLocalStorageRemoveItem(S().K.drop(DP));
@@ -483,6 +484,17 @@
       };
       dropCleanup();
       const planIndexBefore = H().safeLocalStorageGetItem(S().K.plans);
+      const onChangedBefore = PZ.sync.onChanged;
+      // A live UI handler must not be fed this suite's plan states.
+      PZ.sync.onChanged = null;
+      // Every sync call below names DP explicitly, so a silent fallback to the
+      // ACTIVE plan must report the wrong record. On a device that already has
+      // a plan that is reality; on an empty store we pin a stand-in so the
+      // guarantee is tested there too. The user's own active plan is never
+      // touched — losing it to a mid-suite throw is not worth the coverage.
+      if (!S().loadPlanIndex().active) {
+        S().savePlanIndex({ active: FOREIGN, ids: [FOREIGN] });
+      }
 
       const keyBytes = new Uint8Array(32).map((_, i) => (i * 13 + 7) & 255);
       const encKey = H().base64UrlEncodeBytes(keyBytes);
@@ -663,6 +675,12 @@
         "sync pull uses no-store",
         env.fetchOpts.every((f) => !f.opts || f.opts.method === "POST" || (f.opts && f.opts.cache === "no-store")),
       );
+      // The report must describe the plan that was ASKED about — c.html renders
+      // its drop line straight from this value while another plan is active.
+      check(
+        "sync tick reports the requested plan, not the active one",
+        S().loadPlanIndex().active !== DP && deepEqual(st, PZ.sync.status(DP)) && st.state === "idle",
+      );
 
       // mutation → dispatch with the right body shape; dirty until confirmed
       PZ.sync.markDirty(DP);
@@ -776,6 +794,7 @@
       PZ.sync._setFetch((url, opts) => fetch(url, opts));
       PZ.sync._setNow(null);
       PZ.sync._reset();
+      PZ.sync.onChanged = onChangedBefore;
       dropCleanup();
       if (planIndexBefore === null) H().safeLocalStorageRemoveItem(S().K.plans);
       else H().safeLocalStorageSetItem(S().K.plans, planIndexBefore);

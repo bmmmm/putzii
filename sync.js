@@ -211,17 +211,19 @@
   }
 
   // The main entry. reason is for humans/tests; opts.planId overrides the
-  // active plan (c.html knows its plan explicitly).
+  // active plan (c.html knows its plan explicitly). Every status() here is
+  // planId-scoped: the caller asked about THIS plan, so reporting the active
+  // plan's record back would mislabel c.html's drop line.
   async function tick(reason, opts) {
     const planId = (opts && opts.planId) || activePlanId();
-    if (!planId) return status();
+    if (!planId) return status(planId);
     const creds = D().getCreds(planId);
     if (!creds) {
       state = "off";
       errorKind = "";
-      return status();
+      return status(planId);
     }
-    if (running) return status();
+    if (running) return status(planId);
     running = true;
     const rec = loadSt(planId);
     try {
@@ -263,9 +265,9 @@
     } finally {
       saveSt(planId, rec);
       running = false;
-      if (typeof PZ.sync.onChanged === "function") PZ.sync.onChanged(status());
+      if (typeof PZ.sync.onChanged === "function") PZ.sync.onChanged(status(planId));
     }
-    return status();
+    return status(planId);
   }
 
   // Mutation callsites (check-in, config edits, week edits) — NOT savePlan
@@ -306,7 +308,7 @@
     if (id) D().disconnect(id);
     state = "off";
     errorKind = "";
-    if (typeof PZ.sync.onChanged === "function") PZ.sync.onChanged(status());
+    if (typeof PZ.sync.onChanged === "function") PZ.sync.onChanged(status(id));
   }
 
   function initTriggers() {
@@ -340,6 +342,10 @@
       state = "off";
       errorKind = "";
       running = false;
+      // A pending markDirty debounce would otherwise fire AFTER the fetch seam
+      // is restored and tick a test plan against the real network.
+      clearTimeout(debounceTimer);
+      debounceTimer = 0;
       keyCache.encKey = "";
       keyCache.key = null;
     },

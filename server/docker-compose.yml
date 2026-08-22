@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# putzii on the bc101 cluster (dockworker2): Traefik label auto-discovery,
+# same pattern as the other services there (vw./cloud./git.bc101.de).
+#
+# Reachability is PUBLIC on purpose. Check-in buttons and QR codes are spread
+# across a household that shares no LAN with this cluster, so Tailscale on
+# every button is not realistic. What protects the plan is therefore the
+# server's own token check plus AES-256-GCM at rest — never network position.
+#
+# Setup (once, on the host):
+#   mkdir -p data && chmod 700 data
+#   docker compose run --rm putzii plan init \
+#       --config /data/putzii-server.conf --app-base https://putzii.bc101.de
+#   docker compose run --rm putzii user add --config /data/putzii-server.conf --name <Name>
+#   docker compose up -d
+services:
+  putzii:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    image: putzii-server:local
+    container_name: putzii
+    restart: unless-stopped
+    networks:
+      - traefik
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.putzii.rule: Host(`putzii.bc101.de`)
+      traefik.http.routers.putzii.entrypoints: websecure
+      traefik.http.routers.putzii.service: putzii
+      traefik.http.services.putzii.loadbalancer.server.port: "8080"
+    volumes:
+      # Holds putzii-server.conf (0600, the state key + tokens) and the
+      # encrypted plan state. Back THIS up — nothing else is stateful.
+      - ./data:/data
+    environment:
+      - TZ=Europe/Berlin
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+networks:
+  traefik:
+    external: true

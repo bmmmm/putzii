@@ -9,3 +9,16 @@
 .DS_Store
 node_modules/
 .playwright-mcp/
+
+# Server: the real config holds the state key AND every user token; the data
+# directory holds the encrypted plan. Only the blank template is tracked.
+putzii-server.conf
+server/putzii-server.conf
+server/data/
+data/
+
+# Parity fixtures are GENERATED from the working tree on every CI run
+# (tools/gen-*.mjs). Tracking them would let a stale copy pass a build that
+# the current app would fail.
+server/internal/*/testdata/
+

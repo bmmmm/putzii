@@ -1,0 +1,89 @@
+# The server and the app it serves now live in ONE repo, so parity between
+# them is a build-time property rather than a pinned commit that can drift:
+# every Node↔Go golden file is REGENERATED from the working tree here and
+# then asserted against the Go implementation. A wire-format change without
+# its Go counterpart goes red in the same push that introduces it.
+name: server
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          cache-dependency-path: server/go.mod
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt'd:"; echo "$unformatted"; exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+
+      # Node → Go: crypto vectors, wire golden (incl. the exact payload
+      # sync.js PUTs), and the check-in semantics the Go port mirrors.
+      - name: generate parity fixtures from the app
+        run: |
+          node tools/gen-vectors.mjs internal/dropcrypto/testdata/vectors.json
+          node tools/gen-golden.mjs internal/wire/testdata/golden.json ..
+          node tools/gen-mint-golden.mjs internal/mint/testdata/mint-golden.json ..
+
+      - name: go test
+        run: go test ./...
+
+      # Go → Node: the ciphertext Go produced must open in Node. Written by
+      # the test above, so it has to run after it.
+      - name: verify Go-generated vectors in Node
+        run: node tools/check-vectors.mjs internal/dropcrypto/testdata/govectors.json
+
+      # TZ divergence is real: Sunday 22:30 UTC is already Monday in Berlin,
+      # i.e. the NEXT ISO week. Both must pass.
+      - name: go test under UTC
+        run: go test -count=1 ./...
+        env:
+          TZ: UTC
+
+      - name: build
+        run: go build ./...
+
+  selfcheck:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: app self-check (headless)
+        run: node server/tools/selfcheck.mjs .
+      - name: app self-check under UTC
+        run: node server/tools/selfcheck.mjs .
+        env:
+          TZ: UTC
+
+  docker:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      # Proves the image still assembles the binary AND every app asset it
+      # copies by name — a renamed file breaks here, not in production.
+      - name: build image
+        run: docker build -f server/Dockerfile -t putzii-server:ci .

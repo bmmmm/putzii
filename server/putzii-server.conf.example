@@ -1,0 +1,30 @@
+# putzii-server.conf — configuration for the putzii server.
+# COPY to putzii-server.conf, chmod 600. The real file HOLDS SECRETS
+# (state key, user tokens) and must never be committed.
+
+# The ONE plan this server hosts (8 base64url chars, from the app's share
+# link / export). 'putzii-server plan init' fills this in.
+plan_id =
+
+# AES-256 state key, base64url (43 chars). 'putzii-server plan init'
+# generates this.
+enc_key =
+
+# Public base URL of the app THIS server serves — used only to RENDER
+# links, never to make requests (no trailing slash).
+app_base = https://putzii.example.de
+
+# Where state + health live (relative paths resolve next to this file).
+data_dir = data
+
+# Listen address. Behind Traefik this stays container-internal.
+listen = :8080
+
+# Commit every state write into data/.git when that repo exists — free
+# audit history. Never fatal: a failing commit only logs.
+git_audit = false
+
+# Users ('putzii-server user add' manages these):
+# user.<personId>.name          = <display name>
+# user.<personId>.token         = <write token — travels in the #d2. link>
+# user.<personId>.checkin_token = <check-in only — travels in #k2./buttons>

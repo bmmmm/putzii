@@ -1,4 +1,4 @@
-putzii — minimal serverless cleaning-schedule PWA
+putzii — minimal cleaning-schedule PWA with an optional self-hosted server
 Copyright (C) 2026 bmmmm
 
 Licensed under GPL-3.0-or-later (see LICENSE).
@@ -8,3 +8,9 @@ Bundled third-party code:
 - qrcodegen.js — QR Code generator library by Project Nayuki
   https://www.nayuki.io/page/qr-code-generator-library
   MIT License (header preserved in the file). Vendored verbatim.
+
+- server/internal/qr/ — Go port of the same QR Code generator library
+  by Project Nayuki. MIT License, see server/internal/qr/LICENSE.
+
+The Go server itself has no third-party dependencies: server/go.mod declares
+none, so the standard library is the whole dependency graph.

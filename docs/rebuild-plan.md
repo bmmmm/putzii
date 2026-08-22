@@ -153,6 +153,9 @@ ist in Berlin schon Montag, also die nächste ISO-Woche).
 
 ## Migration
 
+Die offenen Schritte 3–7 stehen als Runbook mit den konkreten Kommandos in
+[`todo-cutover.md`](todo-cutover.md) — hier nur der Überblick.
+
 - [x] 0. Dieses Dokument in `bmmmm/putzii` ablegen.
 - [x] 1. Go-Bausteine übernehmen (dropcrypto, wire, config, link), Caps
       vervollständigen, Replay-/Rate-Guard und Check-in-Minting neu schreiben,

@@ -228,7 +228,7 @@
       H().showToast("Speichern fehlgeschlagen — Speicher voll?");
       return;
     }
-    // Drop push AFTER the local write — the QR flow is the reason c.html
+    // Server push AFTER the local write — the QR flow is the reason c.html
     // loads sync.js at all.
     if (PZ.sync && PZ.sync.connected(plan.planId)) PZ.sync.markDirty(plan.planId);
     S().setMe(plan.planId, person.id);
@@ -283,16 +283,15 @@
       }, 1000);
     }
     if (PZ.sync && PZ.sync.connected(plan.planId)) {
-      const dropLine = el("p", "muted", "Drop: wird gesendet…");
+      const dropLine = el("p", "muted", "Server: wird gesendet…");
       dropLine.id = "checkin-drop-line";
       c.appendChild(dropLine);
       PZ.sync.onChanged = (st) => {
         const line = document.getElementById("checkin-drop-line");
         if (!line) return;
-        if (st.state === "sent") line.textContent = "Drop ✓ gesendet — landet gleich bei allen.";
-        else if (st.state === "idle" && !st.dirty) line.textContent = "Drop ✓ synchron.";
-        else if (st.state === "queued") line.textContent = "Drop: wird nachgeholt, sobald online.";
-        else if (st.state === "error") line.textContent = "Drop nicht erreichbar — Eintrag ist lokal gesichert.";
+        if (st.state === "idle" && !st.dirty) line.textContent = "Server ✓ synchron — ist bei allen.";
+        else if (st.state === "queued") line.textContent = "Server: wird nachgeholt, sobald online.";
+        else if (st.state === "error") line.textContent = "Server nicht erreichbar — Eintrag ist lokal gesichert.";
       };
     } else {
       c.appendChild(el("p", "muted", "Ohne Teilen sehen die anderen den Eintrag nicht."));
@@ -350,7 +349,7 @@
     const row = el("div", "form-row");
     const input = document.createElement("input");
     input.type = "text";
-    input.placeholder = "https://…#p1.… oder …#d1.…";
+    input.placeholder = "https://…#p1.… oder …#d2.…";
     const openBtn = el("button", "btn btn-primary", "Öffnen");
     openBtn.type = "button";
     openBtn.addEventListener("click", () => importFromText(input.value));
@@ -387,8 +386,12 @@
 
   function importFromText(raw) {
     const text = String(raw || "");
-    // Personal drop link: connect, pull the plan from the drop, continue.
-    const d = text.match(/#(d1\.[A-Za-z0-9_-]+)/);
+    if (/#(d1|k1)\./.test(text)) {
+      H().showToast("Dieser Link gehört zur alten GitHub-Version — bitte einen neuen anfordern.");
+      return;
+    }
+    // Personal access link: connect, pull the plan from the server, continue.
+    const d = text.match(/#(d2\.[A-Za-z0-9_-]+)/);
     if (d) {
       const creds = PZ.drop.parseCredentialFragment(d[1]);
       if (!creds || !PZ.drop.acceptCredentials(creds)) {
@@ -397,10 +400,10 @@
       }
       S().registerPlan(creds.planId, true);
       S().setMe(creds.planId, creds.personId);
-      H().showToast("Drop verbunden — Plan wird geladen…");
+      H().showToast("Server verbunden — Plan wird geladen…");
       PZ.sync.tick("cold-path", { planId: creds.planId }).then((st) => {
         if (S().loadPlan(creds.planId)) boot();
-        else if (st && st.state === "error") H().showToast("Drop nicht erreichbar — später erneut versuchen.");
+        else if (st && st.state === "error") H().showToast("Server nicht erreichbar — später erneut versuchen.");
       });
       return;
     }
@@ -437,44 +440,66 @@
     boot();
   }
 
-  // #k1. confirm page: pre-scoped activities, one tap per confirmation. No
+  // #k2. confirm page: pre-scoped activities, one tap per confirmation. No
   // local plan, no storage — the link IS the context, the server mints the
   // event. The fragment stays in the URL: reopening from Signal must work,
   // and the server side is replay-safe (nonce + idempotency window).
+  //
+  // Each activity is a REAL form posting to /api/checkin. JS intercepts the
+  // submit to answer in place, but if it never runs the browser posts the
+  // form itself and the server replies with its own confirmation page. The
+  // credentials can only come from the fragment, so JS has to build the
+  // markup — but nothing beyond that build step is required to check in.
+  function confirmError(kind) {
+    if (kind === "authfail" || kind === "forbidden") {
+      return "Zugang abgelehnt — dieser Link wurde vermutlich zurückgezogen.";
+    }
+    if (kind === "unknownarea") return "Diese Tätigkeit gibt es nicht mehr.";
+    return "Nicht erreichbar — offline? Später nochmal versuchen.";
+  }
+
+  function hidden(form, name, value) {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = name;
+    input.value = value;
+    form.appendChild(input);
+  }
+
   function renderConfirm(creds) {
     const c = card();
     c.appendChild(el("h2", "", "Erledigt melden"));
     c.appendChild(el("p", "muted", `Als ${creds.personName} — antippen, was erledigt ist:`));
     for (const area of creds.areas) {
+      const form = document.createElement("form");
+      form.method = "post";
+      form.action = PZ.drop.checkinUrl();
+      hidden(form, "planId", creds.planId);
+      hidden(form, "personId", creds.personId);
+      hidden(form, "areaId", area.areaId);
+      hidden(form, "token", creds.token);
+      hidden(form, "nonce", H().randomId(8));
       const btn = el("button", "btn btn-primary big-confirm", `${area.label} ✓`);
-      btn.type = "button";
+      btn.type = "submit";
+      form.appendChild(btn);
       const line = el("p", "muted", "");
-      btn.addEventListener("click", () => {
+      form.addEventListener("submit", (ev) => {
+        ev.preventDefault();
         btn.disabled = true;
         line.textContent = "Wird gesendet…";
         PZ.sync
           .checkinDispatch(creds, area.areaId)
-          .then((nonce) => {
-            line.textContent = "Gesendet — warte auf Bestätigung…";
-            return PZ.sync.awaitNonce(creds, nonce);
-          })
-          .then((ok) => {
-            if (ok) {
-              line.textContent = "Bestätigt ✓ — ist im Plan vermerkt.";
-            } else {
-              btn.disabled = false;
-              line.textContent = "Keine Bestätigung erhalten — Tätigkeit existiert evtl. nicht mehr, oder später nochmal versuchen.";
-            }
+          .then((res) => {
+            line.textContent = res.minted
+              ? "Bestätigt ✓ — ist im Plan vermerkt."
+              : "Schon eingetragen ✓ — war eben erst vermerkt.";
           })
           .catch((e) => {
             btn.disabled = false;
-            line.textContent =
-              e && e.kind === "authfail"
-                ? "Zugang abgelehnt — dieser Link wurde vermutlich zurückgezogen."
-                : "Nicht erreichbar — offline? Später nochmal versuchen.";
+            line.textContent = confirmError(e && e.kind);
           });
       });
-      c.appendChild(btn);
+      c.appendChild(form);
       c.appendChild(line);
     }
   }
@@ -487,6 +512,13 @@
     if (c.kind === "share") {
       // A share link opened on c.html — index.html owns that flow.
       location.replace(`index.html${location.hash}`);
+      return;
+    }
+    if (c.kind === "legacy") {
+      renderError(
+        "Dieser Link gehört zur alten GitHub-Version.",
+        "Bitte einen neuen Bestätigungs-Link anfordern — der alte Dienst existiert nicht mehr.",
+      );
       return;
     }
     if (c.kind === "confirm") {
@@ -529,7 +561,8 @@
     if (!frag) return { kind: "empty" };
     if (frag.length > H().MAX_HASH_CHARS) return { kind: "unknown" };
     if (frag.startsWith("p1.") || frag.startsWith("p1u.")) return { kind: "share", frag };
-    if (frag.startsWith("k1.")) return { kind: "confirm", frag };
+    if (frag.startsWith("k2.")) return { kind: "confirm", frag };
+    if (frag.startsWith("d1.") || frag.startsWith("k1.")) return { kind: "legacy", frag };
     const m = frag.match(/^c1\.([A-Za-z0-9_-]{1,32})\.([a-z2-9]{1,16})$/);
     if (m) return { kind: "checkin", planId: m[1], areaId: m[2] };
     return { kind: "unknown" };

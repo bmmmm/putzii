@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-const VERSION = "putzii-v2.2-2026-08-21b";
+const VERSION = "putzii-v3.0-2026-08-22a";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -46,10 +46,13 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
-  // Never touch requests outside our own directory: the drop state lives on
-  // the SAME origin (…github.io/putzii-drop/) and a cache-first hit would
-  // freeze it forever. Scope-based, so any same-origin drop path is safe.
-  if (!url.pathname.startsWith(new URL(self.registration.scope).pathname)) return;
+  // Never touch requests outside our own directory.
+  const scopePath = new URL(self.registration.scope).pathname;
+  if (!url.pathname.startsWith(scopePath)) return;
+  // The API lives on the SAME origin, INSIDE the scope: a cache-first hit
+  // would freeze the plan state forever. Bypass it by path — that holds even
+  // if a caller ever forgets cache:"no-store".
+  if (url.pathname.startsWith(scopePath + "api/")) return;
   // Explicit no-store (the sync read path) must never come from a cache.
   if (req.cache === "no-store") return;
 

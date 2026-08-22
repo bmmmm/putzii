@@ -245,11 +245,11 @@
       return;
     }
     btn.hidden = false;
-    // With a HEALTHY drop the counter disappears — the drop distributes
+    // With a HEALTHY server the counter disappears — the server distributes
     // updates, nagging would lie. In error/off/queued the old behavior
     // returns unchanged: the fallback must not feel broken.
     const drop = PZ.sync ? PZ.sync.status(plan.planId) : { state: "off" };
-    const healthy = ["idle", "sent", "pulling", "pushing"].includes(drop.state);
+    const healthy = ["idle", "pulling", "pushing"].includes(drop.state);
     if (healthy) {
       count.hidden = true;
       return;
@@ -261,30 +261,34 @@
     count.textContent = n > 0 ? `· ${n} neu` : "";
   }
 
-  // --- GitHub-drop section on the Teilen tab ---
+  // --- server section on the Teilen tab ---
+
+  // One line per state the sync machine can be in. Every branch names a
+  // CAUSE the household can act on — "nicht erreichbar" is the last resort,
+  // not the default.
+  const DROP_ERROR_TEXT = {
+    authfail: "Zugang abgelaufen — neuen Zugangs-Link anfordern.",
+    forbidden: "Dieser Link darf nur Erledigt-Meldungen senden — persönlichen Zugangs-Link öffnen.",
+    keymismatch: "Schlüssel passt nicht — Link erneuern.",
+    notfound: "Dieser Server kennt den Plan nicht — Zugangs-Link prüfen.",
+    conflict: "Jemand anderes war schneller — beim nächsten Versuch wird zusammengeführt.",
+    toolarge: "Plan zu groß zum Senden — alte Einträge im Server-Log ausdünnen.",
+  };
 
   function dropStatusText(st) {
     let text;
     if (st.state === "off") {
-      text = "Kein Drop verbunden — öffne deinen persönlichen Zugangs-Link.";
-    } else if (st.state === "error" && st.error === "authfail") {
-      text = "Zugang abgelaufen — neuen Link anfordern.";
-    } else if (st.state === "error" && st.error === "keymismatch") {
-      text = "Schlüssel passt nicht — Link erneuern.";
-    } else if (st.state === "error" && st.error === "notfound") {
-      text = "Drop noch nicht eingerichtet — kein Plan-Stand gefunden.";
+      text = "Kein Server verbunden — öffne deinen persönlichen Zugangs-Link.";
     } else if (st.state === "error") {
-      text = "Drop nicht erreichbar.";
+      text = DROP_ERROR_TEXT[st.error] || "Server nicht erreichbar.";
     } else if (st.state === "queued") {
-      text = "Änderungen werden nachgeholt, sobald der Drop erreichbar ist.";
-    } else if (st.state === "sent") {
-      text = "Gesendet — wartet auf Bestätigung…";
+      text = "Änderungen werden nachgeholt, sobald der Server erreichbar ist.";
     } else if (st.state === "pulling" || st.state === "pushing") {
       text = "Synchronisiere…";
     } else {
-      text = st.dirty ? "Drop verbunden — lokale Änderungen ausstehend." : "Drop ✓ synchron.";
+      text = st.dirty ? "Server verbunden — lokale Änderungen ausstehend." : "Server ✓ synchron.";
     }
-    if (st.stale) text += " Drop antwortet mit altem Stand.";
+    if (st.stale) text += " Server antwortet mit altem Stand.";
     return text;
   }
 

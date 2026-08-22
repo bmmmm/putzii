@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// AES-256-GCM state-file crypto for the GitHub drop. The core
-// (importStateKey/encryptState/decryptState) is kept line-identical with
-// putzii-drop's runner/crypto.mjs — the three-way vector test in that repo's
-// CI pins parity. AAD binds ciphertext to planId and format version
-// ("<planId>|1"): no plan swap, no downgrade.
+// AES-256-GCM state-file crypto. The core (importStateKey/encryptState/
+// decryptState) is kept line-identical with server/internal/dropcrypto — the
+// three-way vector test (Node→Go→Node, regenerated on every push) pins that
+// parity. AAD binds ciphertext to planId and format version ("<planId>|1"):
+// no plan swap, no downgrade.
 (function () {
   const PZ = (window.PZ = window.PZ || Object.create(null));
   const H = () => PZ.helpers;

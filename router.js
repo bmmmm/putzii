@@ -15,11 +15,14 @@
     if (!frag) return { kind: "empty" };
     if (frag.length > H().MAX_HASH_CHARS) return { kind: "unknown" };
     if (frag.startsWith("p1.") || frag.startsWith("p1u.")) return { kind: "share", frag };
-    // Drop credential link: carries a PAT — app.js strips it from the URL
-    // bar FIRST, decoding happens in drop.js.
-    if (frag.startsWith("d1.")) return { kind: "drop", frag };
-    // Pre-scoped confirm link (also carries a PAT) — c.html owns the flow.
-    if (frag.startsWith("k1.")) return { kind: "confirm", frag };
+    // Server credential link: carries the write token AND the state key —
+    // app.js strips it from the URL bar FIRST, decoding happens in drop.js.
+    if (frag.startsWith("d2.")) return { kind: "drop", frag };
+    // Pre-scoped confirm link (check-in scoped token) — c.html owns the flow.
+    if (frag.startsWith("k2.")) return { kind: "confirm", frag };
+    // v1 links point at the retired GitHub drop. Naming them explicitly is
+    // what lets the UI say "alter Link" instead of "kaputter Link".
+    if (frag.startsWith("d1.") || frag.startsWith("k1.")) return { kind: "legacy", frag };
     if (frag.startsWith("c1.")) {
       const m = frag.match(/^c1\.([A-Za-z0-9_-]{1,32})\.([a-z2-9]{1,16})$/);
       if (!m) return { kind: "unknown" };

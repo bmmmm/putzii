@@ -124,13 +124,13 @@
     PZ.router.showView("uebersicht");
   }
 
-  // A #d1. link carries the write token AND the PAT: strip it from the URL
-  // bar BEFORE any await — nothing may keep showing or re-processing it.
+  // A #d2. link carries the write token AND the state key: strip it from the
+  // URL bar BEFORE any await — nothing may keep showing or re-processing it.
   function handleDropFragment(frag) {
     PZ.router.replaceHash("teilen");
     const creds = PZ.drop.parseCredentialFragment(frag);
     if (!creds) {
-      H().showToast("Drop-Link konnte nicht gelesen werden.");
+      H().showToast("Zugangs-Link konnte nicht gelesen werden.");
       PZ.router.showView("uebersicht");
       return;
     }
@@ -145,7 +145,7 @@
     if (plan && plan.people.some((p) => p.id === creds.personId)) {
       S().setMe(creds.planId, creds.personId);
     }
-    H().showToast(`Drop verbunden — du bist ${creds.personName} ✓`);
+    H().showToast(`Server verbunden — du bist ${creds.personName} ✓`);
     PZ.router.showView("teilen");
     PZ.sync.tick("drop-link", { planId: creds.planId }).then(() => {
       const me = S().loadPlan(creds.planId);
@@ -170,8 +170,15 @@
         location.replace(`c.html#c1.${c.planId}.${c.areaId}`);
         break;
       case "confirm":
-        // k1 confirm links target c.html — forward, fragment intact.
+        // k2 confirm links target c.html — forward, fragment intact.
         location.replace(`c.html#${c.frag}`);
+        break;
+      case "legacy":
+        // A link from the retired GitHub drop. Drop the payload from the URL
+        // bar first — it still carries a token — then say what to do.
+        PZ.router.replaceHash("uebersicht");
+        H().showToast("Dieser Link gehört zur alten GitHub-Version — bitte einen neuen Zugangs-Link anfordern.", null, 8000);
+        PZ.router.showView("uebersicht");
         break;
       case "route": {
         const name = c.name === "verwalten" && viewMode() === "view" ? "uebersicht" : c.name;

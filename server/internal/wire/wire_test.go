@@ -3,15 +3,16 @@ package wire
 
 import (
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/bmmmm/putzii/server/internal/golden"
 )
 
-type golden struct {
+type goldenFile struct {
 	V             int             `json:"v"`
 	RawWire       json.RawMessage `json:"rawWire"`
 	CanonicalWire json.RawMessage `json:"canonicalWire"`
@@ -20,13 +21,11 @@ type golden struct {
 	StatePayload  string          `json:"statePayload"`
 }
 
-func loadGolden(t *testing.T) *golden {
+func loadGolden(t *testing.T) *goldenFile {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("testdata", "golden.json"))
-	if err != nil {
-		t.Skipf("no golden.json — run: node tools/gen-golden.mjs internal/wire/testdata/golden.json .. (%v)", err)
-	}
-	var g golden
+	raw := golden.Load(t, filepath.Join("testdata", "golden.json"),
+		"node tools/gen-golden.mjs internal/wire/testdata/golden.json ..")
+	var g goldenFile
 	if err := json.Unmarshal(raw, &g); err != nil {
 		t.Fatalf("parse golden: %v", err)
 	}

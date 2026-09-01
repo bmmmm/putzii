@@ -120,7 +120,10 @@ node server/tools/selfcheck.mjs .
   Config-Merge ist LWW per striktem `updatedAt >`. IDs bleiben IDs (keine
   Indizes im Wire-Format). `ts` ist minutengenau quantisiert.
 - Jede Änderung an einer APP_SHELL-Datei braucht einen VERSION-Bump in
-  `service-worker.js` — CI (`sw-version`) erzwingt das.
+  `service-worker.js` — der Pre-Commit-Guard (`scripts/hooks/50-sw-version`)
+  und der Job `sw-version` in `ci.yml` erzwingen das.
+- `scripts/check.sh` fährt die ganze CI-Kette lokal: Go, Node↔Go-Parität,
+  Self-Check — jeweils unter Berlin und UTC.
 - UI-Texte Deutsch, Code/Kommentare Englisch.
 
 </details>

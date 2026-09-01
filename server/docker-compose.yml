@@ -18,6 +18,9 @@ services:
     build:
       context: ..
       dockerfile: server/Dockerfile
+      args:
+        # PUTZII_VERSION=$(git rev-parse --short HEAD) docker compose build
+        VERSION: ${PUTZII_VERSION:-dev}
     image: putzii-server:local
     container_name: putzii
     restart: unless-stopped

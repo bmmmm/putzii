@@ -109,7 +109,10 @@ Compose-File zielt auf `dockworker2` in bc101 (Traefik-Labels, externes
 `traefik`-Netz) — dasselbe Muster wie die anderen Dienste dort.
 
 ```bash
-docker build -f server/Dockerfile -t putzii-server .
+# im Repo-Root; der Stempel erscheint in `putzii-server version` und im Start-Log
+docker build -f server/Dockerfile --build-arg VERSION=$(git rev-parse --short HEAD) -t putzii-server .
+# oder per Compose — build.args liest PUTZII_VERSION, sonst steht dort "dev":
+PUTZII_VERSION=$(git rev-parse --short HEAD) docker compose -f server/docker-compose.yml build
 ```
 
 Zu sichern ist genau ein Verzeichnis: `data/` (Konfiguration + verschlüsselter
@@ -120,11 +123,16 @@ einen Check-in.
 ## Entwickeln
 
 ```bash
-go test ./...                                     # inkl. Node↔Go-Parität
+../scripts/check.sh                               # die ganze CI-Kette, ein Befehl
+go test ./...                                     # nur Go; Parität skippt ohne Fixtures
+PUTZII_REQUIRE_GOLDEN=1 go test ./...             # …Fixtures Pflicht, wie in CI
 node tools/selfcheck.mjs ..                       # App-Suite headless
 node tools/gen-golden.mjs internal/wire/testdata/golden.json ..
 ```
 
-Die Golden-Dateien werden in CI **aus dem Arbeitsbaum regeneriert**, nie von
-Hand gepflegt: eine Wire-Änderung ohne Go-Pendant geht in demselben Push rot.
+Die Golden-Dateien werden **aus dem Arbeitsbaum regeneriert** (`tools/gen-*.mjs`;
+`check.sh` und CI tun das), nie von Hand gepflegt: eine Wire-Änderung ohne
+Go-Pendant geht in demselben Push rot. Ohne Fixtures skippen die drei
+Paritäts-Suiten — lokal eine Bequemlichkeit, im Gate ein Loch; deshalb setzen
+CI und `check.sh` `PUTZII_REQUIRE_GOLDEN=1`, und der Skip wird zum Fehler.
 Alles läuft unter `TZ=Europe/Berlin` und `TZ=UTC` — die Divergenz ist real.

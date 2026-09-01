@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# pre-commit guard: an APP_SHELL asset change needs a service-worker VERSION
+# bump (and the two cross-checks in scripts/check-sw-version.sh). CI runs
+# the same script; this catches it before the commit exists.
+#
+# Install (once per clone — the dispatcher runs everything executable in
+# .git/hooks/pre-commit.d/):
+#   ln -sf "$(git rev-parse --show-toplevel)/scripts/hooks/50-sw-version" \
+#          "$(git rev-parse --git-path hooks)/pre-commit.d/"
+set -euo pipefail
+exec bash "$(git rev-parse --show-toplevel)/scripts/check-sw-version.sh"

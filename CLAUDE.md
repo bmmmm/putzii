@@ -16,7 +16,9 @@ link path. It replaced the retired `bmmmm/putzii-drop` relay (GitHub Actions
   `~/.env`, never in tracked files)
 - `github` = public mirror `github.com/bmmmm/putzii` — push BOTH remotes,
   never merge PRs on the GitHub UI (Dependabot: fix locally, push both).
-- Deploys to GitHub Pages from `main` via `.github/workflows/pages.yml`:
+- Deploys to GitHub Pages from `main` via the `deploy` job in
+  `.github/workflows/ci.yml` — GATED: it needs `go`, `selfcheck`,
+  `sw-version` and `docker` green on the same commit and never runs for PRs.
   https://bmmmm.github.io/putzii/ — a SUBPATH, so every asset reference must
   stay relative (`style.css`, never `/style.css`).
 
@@ -56,8 +58,10 @@ link path. It replaced the retired `bmmmm/putzii-drop` relay (GitHub Actions
 6. Share URL budget 1800 chars (Signal). The UI must always show honest
    counts ("Teilt X von Y Einträgen") when history is capped.
 7. Any APP_SHELL asset change requires a `VERSION` bump in
-   `service-worker.js` — `scripts/check-sw-version.sh` / CI `sw-version`
-   enforce it, including the "every page asset is in APP_SHELL" cross-check.
+   `service-worker.js` — `scripts/check-sw-version.sh` enforces it as the
+   pre-commit guard (`scripts/hooks/50-sw-version`) and as the `sw-version`
+   job in `ci.yml`, plus two tree cross-checks: every page asset is in
+   APP_SHELL, and every APP_SHELL file is in the Dockerfile's COPY block.
 8. All registries are `Object.create(null)`/`Map` — `__proto__` ids must not
    pollute prototypes (self-check asserts it).
 9. Week records (`plan.weeks[]`): `id` IS the ISO week key (`"2026-W34"`,
@@ -94,7 +98,10 @@ link path. It replaced the retired `bmmmm/putzii-drop` relay (GitHub Actions
    from `model.existsRecent`) from the working tree and asserts Go against
    them. A wire change without its Go counterpart goes red in the same push.
    An envelope with MORE slots than the binary knows is fatal
-   (`wire-unknown-slots`), never silently stripped.
+   (`wire-unknown-slots`), never silently stripped. Without fixtures the
+   three parity suites SKIP — a local convenience only; CI and
+   `scripts/check.sh` set `PUTZII_REQUIRE_GOLDEN=1`, which turns that skip
+   into a failure (a skipped parity test proves nothing).
 
 ## Dev loop
 
@@ -106,6 +113,14 @@ go build -C server -o /tmp/putzii-server ./cmd/putzii-server
 /tmp/putzii-server serve --app . --listen :8080
 ```
 
+- **The one command = the CI chain:** `scripts/check.sh` — gofmt, vet,
+  parity fixtures, `go test` Berlin+UTC with `PUTZII_REQUIRE_GOLDEN=1`,
+  Go→Node vectors, build, self-check Berlin+UTC, sw-version (`--docker`
+  adds the image build + version stamp). Green here means green in `ci.yml`.
+  Hook install, once per clone:
+  `ln -sf "$(git rev-parse --show-toplevel)/scripts/hooks/50-sw-version" "$(git rev-parse --git-path hooks)/pre-commit.d/"`
+  (absolute source path — a relative one from a subdirectory makes a dangling
+  link the dispatcher skips silently).
 - Verify = `await PZ.selfCheck.run()` in the browser console → `{ok: true}`,
   or headless: `node server/tools/selfcheck.mjs .` (what CI runs; it stubs
   storage + `location`, so DOM-only sections skip themselves).

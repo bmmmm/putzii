@@ -71,6 +71,31 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 
+# Image completeness: the server image copies every app file BY NAME
+# (server/Dockerfile). A file in APP_SHELL that the COPY block lacks is served
+# by GitHub Pages and missing on the household's own server — the copy that
+# actually syncs. Same discipline as above: validates the tree, not the diff.
+DOCKERFILE="server/Dockerfile"
+if [ -f "$DOCKERFILE" ]; then
+  copied="$(awk '/^COPY --chown/{f=1} f{print} f && /\/app\/[[:space:]]*$/{exit}' "$DOCKERFILE" \
+    | tr -d '\\' | tr ' \t' '\n\n' | grep -vE '^(COPY|--chown=.*|/app/)?$' || true)"
+  missing_copy=""
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    if ! printf '%s\n' "$copied" | grep -qxF "$f"; then
+      missing_copy="${missing_copy}${f}\n"
+    fi
+  done <<SHELLFILES
+$shell_files
+SHELLFILES
+  if [ -n "$missing_copy" ]; then
+    echo "ERROR: APP_SHELL file(s) missing from the COPY block in $DOCKERFILE:" >&2
+    printf '%b' "$missing_copy" >&2
+    echo "Add them to the COPY --chown … /app/ list so the server image ships them." >&2
+    exit 1
+  fi
+fi
+
 shell_changed=0
 while IFS= read -r f; do
   [ -n "$f" ] || continue

@@ -50,7 +50,7 @@ func cmdServe(args []string) error {
 
 	// Counts only, never names: the startup line is the same discipline the
 	// request log follows.
-	log.Info("serving", "addr", addr, "plan", c.cfg.PlanID, "users", len(c.cfg.Users), "app", *appDir)
+	log.Info("serving", "version", version, "addr", addr, "plan", c.cfg.PlanID, "users", len(c.cfg.Users), "app", *appDir)
 
 	idle := make(chan struct{})
 	go func() {

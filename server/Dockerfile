@@ -4,12 +4,16 @@
 #   docker build -f server/Dockerfile -t putzii-server .
 
 FROM golang:1.26-alpine AS build
+# The build context has no .git, so the binary cannot read its own commit:
+# the caller stamps it. CI passes the SHA; docker-compose passes
+# $PUTZII_VERSION. `putzii-server version` and the serve log echo it back.
+ARG VERSION=dev
 WORKDIR /src
 # No third-party dependencies — go.mod alone is the whole dependency graph,
 # so there is nothing to download and nothing to verify at build time.
 COPY server/go.mod ./server/go.mod
 COPY server/ ./server/
-RUN CGO_ENABLED=0 go build -C server -trimpath -ldflags="-s -w" -o /out/putzii-server ./cmd/putzii-server
+RUN CGO_ENABLED=0 go build -C server -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/putzii-server ./cmd/putzii-server
 
 FROM alpine:3.22
 # git only for the optional git_audit history; ca-certificates so an operator

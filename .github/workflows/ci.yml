@@ -1,0 +1,162 @@
+# ONE workflow, ONE gate: the Pages deploy is a job that needs every check
+# on the same commit. Before this, pages.yml deployed on push while
+# server.yml / sw-version.yml could still be red — CI reported, it did not
+# gate.
+#
+# Parity between the app and the Go server is a BUILD property, not a
+# pinned commit: every Node↔Go golden file is regenerated from the working
+# tree and asserted against the Go implementation, so a wire-format change
+# without its Go counterpart goes red in the same push. PUTZII_REQUIRE_GOLDEN
+# turns the local "no fixture → skip" convenience into a failure here.
+#
+# Timezone: runners are UTC, the household is Berlin, and the two disagree
+# on the ISO week for a few hours every Sunday night. Every suite runs under
+# BOTH — the job env is Berlin, the second run overrides to UTC — and the
+# `date` step is the visible proof in the log.
+#
+# scripts/check.sh runs this same chain locally.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-24.04
+    env:
+      TZ: Europe/Berlin
+      PUTZII_REQUIRE_GOLDEN: "1"
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+          cache-dependency-path: server/go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: timezone in effect
+        run: date +'%Z %z'
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt'd:"; echo "$unformatted"; exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+
+      # Node → Go: crypto vectors, wire golden (incl. the exact payload
+      # sync.js PUTs), and the check-in semantics the Go port mirrors.
+      - name: generate parity fixtures from the app
+        run: |
+          node tools/gen-vectors.mjs internal/dropcrypto/testdata/vectors.json
+          node tools/gen-golden.mjs internal/wire/testdata/golden.json ..
+          node tools/gen-mint-golden.mjs internal/mint/testdata/mint-golden.json ..
+
+      - name: go test (Berlin)
+        run: go test -count=1 ./...
+
+      # Go → Node: the ciphertext Go produced must open in Node. Written by
+      # the test above, so it has to run after it.
+      - name: verify Go-generated vectors in Node
+        run: node tools/check-vectors.mjs internal/dropcrypto/testdata/govectors.json
+
+      - name: go test (UTC)
+        run: go test -count=1 ./...
+        env:
+          TZ: UTC
+
+      - name: build
+        run: go build ./...
+
+  selfcheck:
+    runs-on: ubuntu-24.04
+    env:
+      TZ: Europe/Berlin
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: timezone in effect
+        run: date +'%Z %z'
+      - name: app self-check (Berlin)
+        run: node server/tools/selfcheck.mjs .
+      - name: app self-check (UTC)
+        run: node server/tools/selfcheck.mjs .
+        env:
+          TZ: UTC
+
+  # Guard: an APP_SHELL asset change without a service-worker VERSION bump
+  # would leave installed clients on the stale shell forever. The script
+  # also cross-checks that every asset an APP_SHELL page references is in
+  # APP_SHELL, and that every APP_SHELL file is in the Dockerfile's COPY.
+  sw-version:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: check service worker version
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+            git fetch origin "${{ github.base_ref }}" --depth=1
+          else
+            base="${{ github.event.before }}"
+            # First push / forced history: fall back to the empty tree.
+            git cat-file -e "$base" 2>/dev/null || base=$(git hash-object -t tree /dev/null)
+          fi
+          bash scripts/check-sw-version.sh "$base"
+
+  # Proves the image still assembles the binary AND every app asset it
+  # copies by name — a renamed file breaks here, not in production — and
+  # that the version stamp reaches the binary.
+  docker:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: build image
+        run: docker build -f server/Dockerfile --build-arg VERSION=${{ github.sha }} -t putzii-server:ci .
+      - name: image reports the commit as its version
+        run: docker run --rm putzii-server:ci version | grep -F "${{ github.sha }}"
+
+  # GitHub Pages hosts the OFFLINE copy of the app (#p1. links only — CSP is
+  # connect-src 'self', so it never syncs). Deploys only after every check
+  # above passed on this commit; never for pull requests.
+  # Pages must be enabled with Source = GitHub Actions. A failed deploy is
+  # NOT fixed with `gh run rerun --failed` (the replay uploads a second
+  # github-pages artifact and aborts on "Multiple artifacts") — dispatch a
+  # fresh run on main instead, which is why workflow_dispatch deploys too.
+  deploy:
+    needs: [go, selfcheck, sw-version, docker]
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v5

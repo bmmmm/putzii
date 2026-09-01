@@ -17,9 +17,10 @@ beliebiger Reihenfolge, 5 erst, wenn 3 nachweislich funktioniert.
 - [ ] Traefik läuft auf `dockworker2`, externes Netz `traefik` existiert
       (dasselbe Muster wie `git.bc101.de` / `cloud.bc101.de`)
 
-**Achtung: das Dockerfile ist noch nie gebaut worden** — auf dem Mac lief
-kein Daemon. Der erste `docker build` ist damit der erste echte Test. Am
-ehesten bricht die `COPY`-Zeile, die jede App-Datei namentlich listet.
+**Achtung: das Image ist noch nie als Container gelaufen.** CI baut es bei
+jedem Push (Job `docker` in `ci.yml`, inklusive der `COPY`-Zeile, die jede
+App-Datei namentlich listet) — aber Start, Volume-Rechte und Traefik sind
+hier der erste echte Test.
 
 ```bash
 # auf dockworker2, im Repo-Checkout
@@ -28,7 +29,9 @@ chmod 700 server/data
 # Der Container läuft als uid 10001 (nicht root) — ohne das schlägt schon
 # `plan init` mit "permission denied" fehl.
 sudo chown 10001:10001 server/data
-docker compose -f server/docker-compose.yml build
+# PUTZII_VERSION stempelt den Commit ins Binary (`putzii-server version`,
+# Start-Log) — ohne die Variable steht dort "dev".
+PUTZII_VERSION=$(git rev-parse --short HEAD) docker compose -f server/docker-compose.yml build
 ```
 
 **Konfiguration anlegen** — hier hängt alles an der Entscheidung aus

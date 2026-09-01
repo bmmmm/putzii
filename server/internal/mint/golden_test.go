@@ -3,10 +3,10 @@ package mint
 
 import (
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/bmmmm/putzii/server/internal/golden"
 	"github.com/bmmmm/putzii/server/internal/wire"
 )
 
@@ -46,10 +46,8 @@ type mintGolden struct {
 
 func loadMintGolden(t *testing.T) *mintGolden {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("testdata", "mint-golden.json"))
-	if err != nil {
-		t.Skipf("no mint-golden.json — run: node tools/gen-mint-golden.mjs internal/mint/testdata/mint-golden.json .. (%v)", err)
-	}
+	raw := golden.Load(t, filepath.Join("testdata", "mint-golden.json"),
+		"node tools/gen-mint-golden.mjs internal/mint/testdata/mint-golden.json ..")
 	var g mintGolden
 	if err := json.Unmarshal(raw, &g); err != nil {
 		t.Fatalf("parse mint golden: %v", err)

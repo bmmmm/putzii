@@ -153,28 +153,15 @@ ist in Berlin schon Montag, also die nächste ISO-Woche).
 
 ## Migration
 
-Die offenen Schritte 3–7 stehen als Runbook mit den konkreten Kommandos in
-[`todo-cutover.md`](todo-cutover.md) — hier nur der Überblick.
+Erledigt: dieses Dokument liegt im Repo; die Go-Bausteine (dropcrypto, wire,
+config, link) sind übernommen und um Caps, Replay-/Rate-Guard, Check-in-Minting
+und Paritäts-Tests ergänzt; der Client ist umgestellt (`sync.js`, `drop.js`,
+CSP, `c.html`) und der Self-Check läuft headless.
 
-- [x] 0. Dieses Dokument in `bmmmm/putzii` ablegen.
-- [x] 1. Go-Bausteine übernehmen (dropcrypto, wire, config, link), Caps
-      vervollständigen, Replay-/Rate-Guard und Check-in-Minting neu schreiben,
-      Parity-Tests aufsetzen.
-- [x] 2. Client umstellen (`sync.js`, `drop.js`, CSP, `c.html`), Self-Check
-      erweitern und headless lauffähig machen.
-- [ ] 3. Auf bc101 (`dockworker2`) deployen: Traefik-Route + LE-Zertifikat für
-      `putzii.bc101.de`, frisches Datenverzeichnis.
-- [ ] 4. Einmalige Zustandsmigration: aktuellen Plan als Datei exportieren und
-      `putzii-server plan import` — oder die drei Dateien aus `site/` des
-      Drops direkt kopieren (Layout ist identisch, Schlüssel muss derselbe
-      sein).
-- [ ] 5. Harter Cutover: alle `#d2.`/`#k2.`-Links und Check-in-QR-Codes neu
-      ausstellen. Alte Links sind tot und sagen das auch.
-- [ ] 6. Zuhause: HA-Automation von den MQTT-Buttons auf
-      `POST https://putzii.bc101.de/api/checkin` (`putzii-server button new
-      --kind ha` druckt den Block).
-- [ ] 7. `putzii-drop` stilllegen: Workflows aus, PAT löschen, Repo
-      archivieren. Die Repo-Löschung macht der Nutzer selbst.
+Was bleibt — Deploy auf bc101, einmalige Zustandsübernahme, Link- und
+QR-Neuausgabe, HA-Anbindung, Stilllegung des Drops — steht **nur** in
+[`todo-cutover.md`](todo-cutover.md), mit Reihenfolge und Kommandos. Eine
+zweite Liste hier würde bloß auseinanderlaufen.
 
 ## Verifikation
 

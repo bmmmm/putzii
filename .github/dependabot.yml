@@ -1,10 +1,18 @@
-# Dependabot template — static site. Copy to .github/dependabot.yml.
-# github-actions only for a no-build static site; add an `npm` block (see the
-# js-project template) if the site has a package.json build toolchain.
+# Two ecosystems: the workflow actions, and the Docker base images the
+# server image is built FROM (golang:1.26-alpine, alpine:3.22). No npm block —
+# the app has no build toolchain and no package.json.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore(deps)
+    labels:
+      - dependencies
+  - package-ecosystem: docker
+    directory: /server
     schedule:
       interval: monthly
     commit-message:

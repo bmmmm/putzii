@@ -5,7 +5,9 @@ für die Entscheidungen). Was hier steht, braucht echte Infrastruktur oder
 Handgriffe am Haushalt — nichts davon lässt sich am Schreibtisch beweisen.
 
 **Stand 2026-09-02.** Schritt 5 ist **erledigt** — vorgezogen, siehe dort.
-Schritt 1 und 2 sind machbar, sobald der Deploy gewollt ist. Schritt 3 und 4
+Schritt 1 ist **erledigt**: der Dienst läuft auf `dockworker2`, intern
+bewiesen (Details dort). Schritt 2 (Zustandsübernahme) ist machbar, sobald
+er gewollt ist. Schritt 3 und 4
 sind **bewusst zurückgestellt**: entschieden ist Tailnet-only, also kein
 Port-Forward, kein öffentlicher A-Record, kein Tunnel ins geteilte
 bc101-Netz. Damit ist der Dienst intern beweisbar, aber ein Haushalts-Handy
@@ -17,7 +19,61 @@ belegten Erreichbarkeit von außerhalb des Tailnets.
 
 ---
 
-## 1. Deploy auf bc101 (`dockworker2`)
+## 1. Deploy auf bc101 (`dockworker2`) — **erledigt am 2026-09-02**
+
+Gelaufen auf Commit `23bf728`, Container `putzii`, Version im Start-Log
+gestempelt. Bewiesen (alles von `dockworker2` aus, `healthz` zusätzlich vom
+Mac über das Tailnet):
+
+- [x] `curl -s https://putzii.bc101.de/api/healthz` → `{"ok":true}`
+- [x] `https://putzii.bc101.de/` liefert die App (HTTP 200, 9784 Bytes,
+      `<title>putzii – Putzplan</title>`, `service-worker.js` 200)
+- [x] `/api/state/<planId>` **ohne** Token → `401 {"error":"auth"}`
+- [x] Zertifikat gültig: `CN=putzii.bc101.de`, Let's Encrypt, bis 2026-12-01
+- [x] `doctor` → **0 failed**, 2 Warnungen (keine Nutzer, kein Zustand —
+      beides erwartet, kommt mit Schritt 2)
+- [x] `serve` gegen ein **echtes Volume**, inklusive Neustart:
+      `RestartCount=0`, `healthy`, Config nach dem Restart wiedergelesen —
+      das war der einzige wirklich ungetestete Teil
+- [x] Container läuft als `uid=10001(putzii)`, nicht root
+- [x] Interner Pi-hole-Record `putzii.bc101.de` → `192.168.10.32` (+ IPv6,
+      Muster der Nachbarn), über `~/servers/bc101/scripts/pihole-dns.sh add`
+- [ ] `/api/healthz` in die bc101-Monitoring-Insel aufnehmen
+
+**Noch kein Umzug, nur ein laufender Dienst.** `plan init` lief **ohne**
+`--plan-id`, hat also einen frischen Plan angelegt (`users 0`, kein Zustand)
+— der Haushalts-Plan ist nicht übernommen. Das ist Schritt 2, und ohne
+Erreichbarkeit von außen wäre er ein Backup, kein Umzug. Wer ihn nachholt,
+muss `plan init` mit der bestehenden `planId` wiederholen; es weigert sich,
+eine vorhandene Konfiguration zu überschreiben, also vorher
+`/data/putzii-server.conf` wegräumen.
+
+**Zwei Fallen, beide beim ersten Durchlauf getroffen:**
+
+1. **git kommt auf `dockworker2` nur über HTTP/1.1 durch.** `git clone`
+   stirbt mit `could not read Username for 'https://github.com'` und
+   `expected flush after ref listing`, obwohl `curl` auf denselben
+   `info/refs`-Endpunkt 200 liefert und der POST auf `git-upload-pack`
+   ebenfalls. Es liegt an HTTP/2, nicht an Auth:
+   `git -c http.version=HTTP/1.1 clone …` geht sofort durch. Im Checkout
+   danach `git config http.version HTTP/1.1` setzen, sonst bricht der nächste
+   `git pull` wieder.
+2. **`chown` vor `build` braucht ein `.dockerignore`.** Der Build-Kontext ist
+   das Repo-Root, und `COPY server/ ./server/` zieht `server/data` mit. Nach
+   dem `chown 10001:10001` kann der Build-Daemon (läuft als Deploy-User) das
+   Verzeichnis nicht mehr lesen:
+   `failed to solve: error from sender: open .../server/data: permission denied`.
+   Seit `23bf728` liegt ein `.dockerignore` im Repo — es löst beides, denn
+   ohne es landete `putzii-server.conf` (State-Key!) in einer Image-Schicht.
+
+**Zertifikat ohne öffentliche Erreichbarkeit:** Traefik auf diesem Host nutzt
+die **Cloudflare-DNS-01-Challenge** (`--certificatesresolvers.myresolver.acme
+.dnschallenge.provider=cloudflare`), nicht HTTP-01. Let's Encrypt stellt
+deshalb auch für einen nur intern erreichbaren Host aus — die Tailnet-only-
+Entscheidung kostet kein Zertifikat.
+
+<details>
+<summary>Die ursprüngliche Anleitung (für einen zweiten Deploy)</summary>
 
 **Vorher prüfen**
 
@@ -82,6 +138,8 @@ docker compose -f server/docker-compose.yml up -d
 - [ ] `docker compose exec putzii putzii-server doctor --config /data/putzii-server.conf --app /app`
       → 0 failed
 - [ ] `/api/healthz` in die bc101-Monitoring-Insel aufnehmen
+
+</details>
 
 ---
 

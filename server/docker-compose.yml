@@ -2,13 +2,23 @@
 # putzii on the bc101 cluster (dockworker2): Traefik label auto-discovery,
 # same pattern as the other services there (vw./cloud./git.bc101.de).
 #
-# Reachability is PUBLIC on purpose. Check-in buttons and QR codes are spread
-# across a household that shares no LAN with this cluster, so Tailscale on
-# every button is not realistic. What protects the plan is therefore the
-# server's own token check plus AES-256-GCM at rest — never network position.
+# Reachability is currently TAILNET-ONLY (decided 2026-09-02): no port
+# forward, no public A record, no tunnel into the shared bc101 network. The
+# service is proven to run and is reachable from the tailnet; a household
+# phone on mobile data is NOT. Handing out links and QR codes therefore stays
+# blocked — see docs/todo-cutover.md steps 3 and 4.
 #
-# Setup (once, on the host):
-#   mkdir -p data && chmod 700 data
+# The certificate does not depend on that: Traefik on this host uses the
+# Cloudflare DNS-01 challenge, so Let's Encrypt issues for putzii.bc101.de
+# without the host ever being publicly reachable.
+#
+# If it is ever made public, the design already assumes it: what protects the
+# plan is the server's own token check plus AES-256-GCM at rest, never
+# network position.
+#
+# Setup (once, on the host — the ORDER matters, see docs/todo-cutover.md):
+#   mkdir -p data && chmod 700 data && sudo chown 10001:10001 data
+#   PUTZII_VERSION=$(git rev-parse --short HEAD) docker compose build
 #   docker compose run --rm putzii plan init \
 #       --config /data/putzii-server.conf --app-base https://putzii.bc101.de
 #   docker compose run --rm putzii user add --config /data/putzii-server.conf --name <Name>

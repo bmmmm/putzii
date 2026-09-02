@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# The build context is the repo root (server/docker-compose.yml sets
+# `context: ..`), and server/Dockerfile does `COPY server/ ./server/`. Two
+# reasons this file has to exist:
+#
+# 1. SECURITY. server/data holds putzii-server.conf — the AES state key and
+#    the token hashes, 0600 — plus the encrypted plan. Without this line a
+#    build on the deploy host copies all of it into the image layer.
+# 2. It makes the build WORK at all. The runbook chowns server/data to
+#    10001:10001 before building (the container runs as that uid), after
+#    which the build daemon, running as the deploy user, cannot read the
+#    directory and the build fails with "error from sender: open
+#    .../server/data: permission denied".
+#
+# Keep this narrow: invariant 7 cross-checks that every APP_SHELL asset
+# appears in the Dockerfile's COPY block, so excluding an app file here would
+# break the image while the guard still reads green.
+server/data/
+.git/
+.github/

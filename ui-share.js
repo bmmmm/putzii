@@ -276,7 +276,9 @@
     rejected: "Server hat den Stand abgelehnt — App auf allen Geräten neu laden, dann synchronisieren.",
   };
 
-  function dropStatusText(st) {
+  // `nowMs` is a parameter so the self-check can pin the relative wording
+  // without waiting for a clock.
+  function dropStatusText(st, nowMs) {
     let text;
     if (st.state === "off") {
       text = "Kein Server verbunden — öffne deinen persönlichen Zugangs-Link.";
@@ -290,6 +292,15 @@
       text = st.dirty ? "Server verbunden — lokale Änderungen ausstehend." : "Server ✓ synchron.";
     }
     if (st.stale) text += " Server antwortet mit altem Stand.";
+    // When the server last had this device's state — the one number that
+    // tells a household whether "verbunden" still means anything today.
+    // `pending` deliberately stays out: it is retry mechanics, not a cause
+    // anybody can act on.
+    if (st.state !== "off") {
+      text += st.lastSyncAt
+        ? ` Zuletzt synchronisiert: ${H().formatRelPast(st.lastSyncAt, nowMs)}.`
+        : " Noch nie synchronisiert.";
+    }
     return text;
   }
 
@@ -297,12 +308,15 @@
     const statusEl = document.getElementById("drop-status");
     if (!statusEl) return;
     const st = PZ.sync.status();
-    statusEl.textContent = dropStatusText(st);
-    const connected = st.state !== "off";
+    statusEl.textContent = dropStatusText(st, Date.now());
     const syncBtn = document.getElementById("btn-drop-sync");
     const discBtn = document.getElementById("btn-drop-disconnect");
-    if (syncBtn) syncBtn.hidden = !connected;
-    if (discBtn) discBtn.hidden = !connected;
+    // Hidden, not disabled: this file has no disabled pattern, and a button
+    // that cannot help is worse than no button at all.
+    if (syncBtn) syncBtn.hidden = !PZ.sync.dropSyncCanRetry(st);
+    // "Server trennen" stays offered whenever a server is configured — on
+    // authfail and keymismatch it IS the way out.
+    if (discBtn) discBtn.hidden = st.state === "off";
   }
 
   function notifyDataChanged() {
@@ -353,5 +367,6 @@
     notifyDataChanged,
     shareVia,
     renderDropStatus,
+    dropStatusText,
   };
 })();

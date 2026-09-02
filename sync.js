@@ -33,6 +33,10 @@
   // server overwrites rather than merges, so a truncated push would erase
   // history — it refuses one, and so do we, loudly.
   const PUSH_BUDGET_CHARS = 64 * 1024;
+  // The only two failures a plain retry can still change: `conflict` is
+  // resolved by the very next tick (pull, mergePlans, push) and `net` is what
+  // the queue exists for. A Set, not an object literal — invariant 8.
+  const RETRYABLE_ERRORS = new Set(["conflict", "net"]);
   // One re-attempt per tick. Enough for the two cases that actually happen
   // (someone else wrote first; a lost response) and bounded enough that a
   // persistent problem surfaces instead of looping.
@@ -351,6 +355,21 @@
     };
   }
 
+  // May a "Jetzt synchronisieren" button change anything from here? Pressing
+  // it on authfail/forbidden/keymismatch/notfound cannot — those need a NEW
+  // link; `toolarge` needs thinning, and `rejected` is answered by the reload
+  // that fixes it, which ticks on boot by itself. Offering the button anyway
+  // teaches the household that the server is flaky when it is not.
+  //
+  // This predicate lives in sync.js, next to the states it judges, and not in
+  // ui-share.js: the headless runner never loads UI modules, so the rule would
+  // stay untested there forever.
+  function dropSyncCanRetry(st) {
+    if (!st || st.state === "off") return false;
+    if (st.state === "error") return RETRYABLE_ERRORS.has(st.error);
+    return true;
+  }
+
   function disconnect(planId) {
     const id = planId || activePlanId();
     if (id) D().disconnect(id);
@@ -379,6 +398,7 @@
     canUndoImport,
     markDirty,
     status,
+    dropSyncCanRetry,
     connected,
     disconnect,
     initTriggers,

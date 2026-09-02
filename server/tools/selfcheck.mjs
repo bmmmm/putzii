@@ -68,6 +68,9 @@ const modules = [
   "dropcrypto.js",
   "drop.js",
   "sync.js",
+  // A UI module, loaded on purpose: its module scope touches no DOM, and
+  // the Teilen tab's German server copy is checked nowhere else.
+  "ui-share.js",
   "self-check.js",
 ];
 for (const f of modules) {

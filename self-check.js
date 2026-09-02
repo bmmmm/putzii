@@ -945,12 +945,24 @@
         check("payload-size refusal → toolarge", st.state === "error" && st.error === "toolarge");
         env.putStatus = 429;
         env.putError = "rate";
+        env.puts.length = 0;
         st = await PZ.sync.tick("test-rate", { planId: DP });
         check("rate brake while dirty → queued", st.state === "queued" && st.dirty === true);
+        // The nonce contract from push(): an attempt that failed KEEPS its
+        // nonce, so the retry is answered as a replay instead of being
+        // applied twice. `status().pending` is the live field that says so —
+        // pinned here through the machine, not through a synthetic record.
+        const queuedNonce = env.puts.length === 1 ? env.puts[0].nonce : "";
+        check("a queued push keeps its nonce pending", st.pending === true && !!queuedNonce);
         env.putStatus = 200;
         env.putError = "";
+        env.puts.length = 0;
         st = await PZ.sync.tick("test-drain", { planId: DP });
         check("queued work drains once the server accepts", st.state === "idle" && st.dirty === false);
+        check(
+          "the retry reuses that nonce, and success clears it",
+          env.puts.length === 1 && env.puts[0].nonce === queuedNonce && st.pending === false,
+        );
 
         // k2 confirm flow: one-shot check-in, confirmed by the RESPONSE — no
         // local plan involved, the stub records the exact wire body.
@@ -997,6 +1009,57 @@
         if (planIndexBefore === null) H().safeLocalStorageRemoveItem(S().K.plans);
         else H().safeLocalStorageSetItem(S().K.plans, planIndexBefore);
       }
+    }
+
+    // --- the Teilen tab's server line: when is a retry worth offering, and
+    // what does the household actually read? The predicate lives in sync.js
+    // (testable headlessly), the German words in ui-share.js — the runner
+    // loads that module for exactly this section. ---
+    if (PZ.sync && PZ.sync.dropSyncCanRetry) {
+      const R = PZ.sync.dropSyncCanRetry;
+      check("retry: no state at all → nothing to press", R(null) === false);
+      check("retry: no server → button gone", R({ state: "off" }) === false);
+      check("retry: connected and idle → offered", R({ state: "idle" }) === true);
+      check("retry: queued → offered", R({ state: "queued" }) === true);
+      // The two transient failures: pressing again genuinely helps.
+      check("retry: conflict → the next tick merges", R({ state: "error", error: "conflict" }) === true);
+      check("retry: net → offered", R({ state: "error", error: "net" }) === true);
+      // The deterministic ones: pressing again repeats the same answer.
+      for (const kind of ["authfail", "forbidden", "keymismatch", "notfound", "toolarge", "rejected"]) {
+        check(`retry: ${kind} needs a different action, not a retry`, R({ state: "error", error: kind }) === false);
+      }
+      check("retry: an unknown error kind is not offered either", R({ state: "error", error: "zzz" }) === false);
+    }
+
+    if (PZ.uiShare && PZ.uiShare.dropStatusText) {
+      const T = PZ.uiShare.dropStatusText;
+      const NOW = 1756800000000;
+      check(
+        "copy: connected but never synced says so",
+        T({ state: "idle", lastSyncAt: 0 }, NOW).includes("Noch nie synchronisiert."),
+      );
+      check(
+        "copy: the last sync is a relative time",
+        T({ state: "idle", lastSyncAt: NOW - 3 * 3600000 }, NOW).includes("Zuletzt synchronisiert: vor 3 Std."),
+      );
+      check(
+        "copy: without a server there is no sync time",
+        !T({ state: "off", lastSyncAt: 0 }, NOW).includes("synchronisiert"),
+      );
+      check(
+        "copy: an error names its cause AND the last sync",
+        (() => {
+          const t = T({ state: "error", error: "authfail", lastSyncAt: NOW - 86400000 }, NOW);
+          return t.includes("Zugangs-Link") && t.includes("gestern");
+        })(),
+      );
+      check(
+        "copy: a stale server keeps both hints",
+        (() => {
+          const t = T({ state: "idle", stale: true, lastSyncAt: NOW - 60000 }, NOW);
+          return t.includes("altem Stand") && t.includes("gerade eben");
+        })(),
+      );
     }
 
     // --- device identity: resolveMe ---

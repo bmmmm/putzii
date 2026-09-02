@@ -63,18 +63,16 @@
     banner.hidden = false;
   }
 
-  // Central merge application for share links AND file imports. Writes a
-  // pre-merge backup so the summary toast can offer "Rückgängig".
+  // Central merge application for share links AND file imports. The merge
+  // itself lives in sync.importPlan (it writes the pre-merge backup and marks
+  // the plan dirty on a connected server); this is the UI around it.
   function applyRemotePlan(remotePlan, opts) {
-    const local = S().loadPlan(remotePlan.planId);
-    const knownBefore = !!local;
-    if (local) S().saveBackup(local);
-    const { plan, summary } = PZ.share.mergePlans(local, remotePlan, Date.now());
-    if (!S().savePlan(plan)) {
+    const res = PZ.sync.importPlan(remotePlan, Date.now());
+    if (!res) {
       H().showToast("Speichern fehlgeschlagen — Speicher voll?");
       return null;
     }
-    S().registerPlan(plan.planId, true);
+    const { plan, summary, knownBefore } = res;
     // The viewer flag only ever DOWNGRADES a plan this device did not already
     // know — an admin opening their own view link keeps their full UI.
     if (opts && opts.viewer && !knownBefore) S().setUiMode(plan.planId, "view");
@@ -85,11 +83,18 @@
     if (summary.newPeople) parts.push(`${summary.newPeople} neue Personen`);
     if (summary.newWeeks) parts.push(`${summary.newWeeks} neue Wochen`);
     if (summary.changedWeeks) parts.push(`${summary.changedWeeks} Wochen geändert`);
+    if (summary.changedName) parts.push("Name geändert");
     const msg = parts.length ? `Zusammengeführt: ${parts.join(", ")}` : "Plan ist schon aktuell.";
     if (knownBefore && parts.length) {
       H().showToast(msg, {
         label: "Rückgängig",
         onClick: () => {
+          // Once the import reached the server, a local revert would only be
+          // re-merged by the next pull — say so instead of pretending.
+          if (!PZ.sync.canUndoImport(plan.planId)) {
+            H().showToast("Rückgängig nicht mehr möglich — der Stand ist schon beim Server.");
+            return;
+          }
           const backup = S().loadBackup(plan.planId);
           if (backup && S().savePlan(backup)) {
             S().clearBackup(plan.planId);
@@ -145,12 +150,24 @@
     if (plan && plan.people.some((p) => p.id === creds.personId)) {
       S().setMe(creds.planId, creds.personId);
     }
-    H().showToast(`Server verbunden — du bist ${creds.personName} ✓`);
     PZ.router.showView("teilen");
     PZ.sync.tick("drop-link", { planId: creds.planId }).then(() => {
       const me = S().loadPlan(creds.planId);
       if (me && me.people.some((p) => p.id === creds.personId)) {
         S().setMe(creds.planId, creds.personId);
+      }
+      // The toast waits for the first round trip: "verbunden" before any
+      // fetch happened was a promise, not a fact. The Teilen tab names the
+      // exact cause; this only says whether the plan arrived.
+      // Same "healthy" set as the badge: `queued` is a FAILED round trip
+      // with old local changes waiting, not a connection.
+      const st = PZ.sync.status(creds.planId);
+      if (["idle", "pulling", "pushing"].includes(st.state)) {
+        H().showToast(`Server verbunden — du bist ${creds.personName} ✓`);
+      } else if (st.state === "queued" || st.error === "net") {
+        H().showToast("Zugang gespeichert — Server gerade nicht erreichbar, wird nachgeholt.", null, 8000);
+      } else {
+        H().showToast("Zugang gespeichert — der Server lehnt ab, Details unter Teilen.", null, 8000);
       }
       refresh();
     });

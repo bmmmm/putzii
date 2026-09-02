@@ -288,6 +288,9 @@
         changedPeople: people.changed,
         newWeeks: weeks.added,
         changedWeeks: weeks.changed,
+        // The plan name is plan-level, not a record: a rename-only link is
+        // still news (and must reach a connected server like any change).
+        changedName: local && plan.name !== local.name ? 1 : 0,
       },
     };
   }

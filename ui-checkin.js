@@ -291,6 +291,8 @@
         if (!line) return;
         if (st.state === "idle" && !st.dirty) line.textContent = "Server ✓ synchron — ist bei allen.";
         else if (st.state === "queued") line.textContent = "Server: wird nachgeholt, sobald online.";
+        else if (st.state === "error" && st.error === "rejected")
+          line.textContent = "Server hat den Stand abgelehnt — Eintrag ist lokal gesichert, App neu laden.";
         else if (st.state === "error") line.textContent = "Server nicht erreichbar — Eintrag ist lokal gesichert.";
       };
     } else {

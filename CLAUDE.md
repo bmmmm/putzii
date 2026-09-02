@@ -76,12 +76,19 @@ link path. It replaced the retired `bmmmm/putzii-drop` relay (GitHub Actions
    end. Bump WIRE_VERSION only for structurally incompatible changes.
 11. Server sync: a pull that merges remote data NEVER sets dirty (two clients
    would ping-pong). `markDirty` lives at USER mutation callsites
-   (saveAndRefresh, saveDays, confirmCheckin) — never inside
-   savePlan/saveWeek. Writes are synchronous: the PUT response IS the
-   confirmation, and dirty clears only if no mutation arrived after the push
-   started (`dirtySince <= pushedAt`). A `replay:true` answer confirms an
-   EARLIER attempt, not the current content — it re-pushes with a fresh
-   nonce instead of clearing dirty.
+   (saveAndRefresh, saveDays, confirmCheckin, and `sync.importPlan` for
+   `#p1.`/file imports — a user action whose events the server never sent,
+   so it cannot ping-pong; a rename-only import counts, via
+   `summary.changedName`) — never inside savePlan/saveWeek. The import
+   "Rückgängig" asks `canUndoImport` first: once pushed, a local revert
+   would just be re-merged by the next pull. Writes are synchronous: the
+   PUT response IS the confirmation, and dirty clears only if no mutation
+   arrived after the push started (`dirtySince <= pushedAt`). A
+   `replay:true` answer confirms an EARLIER attempt, not the current
+   content — it re-pushes with a fresh nonce instead of clearing dirty. A
+   push the server REFUSES with a named reason (`events-dropped`,
+   `wire-unknown-slots`, …) is `error:rejected`, never `queued` — only
+   `net` (offline, 5xx, 429) may queue.
 12. The service worker must never answer requests outside its own scope, nor
    anything under `<scope>api/`, nor `cache:"no-store"` requests — all three
    bypasses live at the top of the fetch handler. The API is same-origin, so

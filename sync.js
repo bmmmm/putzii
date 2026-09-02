@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Server sync state machine. States: off · idle · pulling · pushing ·
-// queued · error{authfail|forbidden|notfound|keymismatch|conflict|toolarge|net}.
+// queued · error{authfail|forbidden|notfound|keymismatch|conflict|toolarge|
+// rejected|net}. `rejected` is a deterministic refusal of the content
+// (events-dropped, wire-unknown-slots, …): a retry cannot fix it, so it is
+// never shown as "wird nachgeholt" — only `net` (offline, 5xx, 429) queues.
 // Triggers: boot, visibility (≤1/30 s), mutation (1.5 s debounce via
-// markDirty), online, c.html post-check-in. THE invariant: a pull that merges
-// remote data NEVER sets dirty — two clients would ping-pong forever.
+// markDirty — also from importPlan, the #p1./file import path), online,
+// c.html post-check-in. THE invariant: a pull that merges remote data NEVER
+// sets dirty — two clients would ping-pong forever.
 //
 // Writes are SYNCHRONOUS now: the server answers with the new rev, so the
 // response IS the confirmation. What the GitHub-drop era needed — a pending
@@ -40,6 +44,7 @@
 
   let state = "off";
   let errorKind = "";
+  let errorReason = "";
   let running = false;
   let debounceTimer = 0;
   let lastVisibilityTick = 0;
@@ -181,7 +186,17 @@
     if (res.status === 401 || res.status === 403) throw statusFail(res.status);
     if (!res.ok) {
       const body = await readJson(res);
-      throw fail(body.error === "payload-size" ? "toolarge" : "net");
+      // Our plan outgrew the cap: a different fix than "try again later".
+      if (res.status === 413 || body.error === "payload-size") throw fail("toolarge");
+      // Transient — the rate brake, a server hiccup, a body-less proxy
+      // answer — may queue and retry.
+      if (res.status === 429 || res.status >= 500 || !body.error) throw fail("net");
+      // Everything else with a named reason (events-dropped, wire-unknown-
+      // slots, no-plan, …) is a deterministic REFUSAL of this content. A
+      // retry cannot fix it, so it must not hide behind "wird nachgeholt".
+      const e = fail("rejected");
+      e.reason = String(body.error);
+      throw e;
     }
     const body = await readJson(res);
     rec.pendingNonce = "";
@@ -238,6 +253,7 @@
     try {
       state = "pulling";
       errorKind = "";
+      errorReason = "";
       let pulled = await pull(creds, rec);
       for (let attempt = 0; rec.dirty; attempt++) {
         state = "pushing";
@@ -257,6 +273,7 @@
       state = rec.dirty ? "queued" : "idle";
     } catch (e) {
       errorKind = (e && e.kind) || "net";
+      errorReason = (e && e.reason) || "";
       // offline with something to say = queued, not broken
       state = errorKind === "net" && rec.dirty ? "queued" : "error";
     } finally {
@@ -267,8 +284,40 @@
     return status(planId);
   }
 
-  // Mutation callsites (check-in, config edits, week edits) — NOT savePlan
-  // itself: a merge-triggered save must never mark dirty (ping-pong).
+  // A share link (#p1.) or a file import, applied to the local plan. This is
+  // a USER action, not a pull: the server never sent these events, so
+  // marking dirty cannot ping-pong — and without it, imported history stayed
+  // on this device forever while the badge showed a healthy server. Writes
+  // the pre-merge backup so the caller can offer "Rückgängig". Callsite:
+  // app.js applyRemotePlan. Returns null when the save failed (storage full).
+  function importPlan(remotePlan, nowMs) {
+    const now = Number.isFinite(nowMs) ? nowMs : _now();
+    const local = S().loadPlan(remotePlan.planId);
+    const knownBefore = !!local;
+    if (local) S().saveBackup(local);
+    const { plan, summary } = PZ.share.mergePlans(local, remotePlan, now);
+    if (!S().savePlan(plan)) return null;
+    S().registerPlan(plan.planId, true);
+    // A plan this device did not have is news by definition (cold start via
+    // a link after the #d2. handshake found no state on the server).
+    const news = !knownBefore || Object.keys(summary).some((k) => summary[k] > 0);
+    if (news && connected(plan.planId)) markDirty(plan.planId);
+    return { plan, summary, knownBefore };
+  }
+
+  // "Rückgängig" after an import is honest only while the import has not
+  // reached the server: once pushed, restoring the backup would be re-merged
+  // by the next pull (append-only, first-seen-wins). The debounce is 1.5 s,
+  // the undo toast stays for 8 s — so the caller asks. Connected and no
+  // longer dirty means the push went through.
+  function canUndoImport(planId) {
+    const id = planId || activePlanId();
+    return !connected(id) || !!loadSt(id).dirty;
+  }
+
+  // Mutation callsites (check-in, config edits, week edits, importPlan) —
+  // NOT savePlan itself: a merge-triggered save must never mark dirty
+  // (ping-pong).
   function markDirty(planId) {
     const id = planId || activePlanId();
     if (!id || !D().getCreds(id)) return;
@@ -291,6 +340,9 @@
     return {
       state: connected(id) ? state : "off",
       error: errorKind,
+      // the server's own word for a `rejected` push (events-dropped, …) —
+      // for the console and the self-check, the UI copy stays one line
+      reason: errorReason,
       dirty: !!(rec && rec.dirty),
       pending: !!(rec && rec.pendingNonce),
       lastRev: rec ? rec.lastRev : 0,
@@ -304,6 +356,7 @@
     if (id) D().disconnect(id);
     state = "off";
     errorKind = "";
+    errorReason = "";
     if (typeof PZ.sync.onChanged === "function") PZ.sync.onChanged(status(id));
   }
 
@@ -322,6 +375,8 @@
     PUSH_BUDGET_CHARS,
     tick,
     checkinDispatch,
+    importPlan,
+    canUndoImport,
     markDirty,
     status,
     connected,
@@ -337,6 +392,7 @@
     _reset() {
       state = "off";
       errorKind = "";
+      errorReason = "";
       running = false;
       // A pending markDirty debounce would otherwise fire AFTER the fetch seam
       // is restored and tick a test plan against the real network.

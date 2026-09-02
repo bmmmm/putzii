@@ -273,6 +273,7 @@
     notfound: "Dieser Server kennt den Plan nicht — Zugangs-Link prüfen.",
     conflict: "Jemand anderes war schneller — beim nächsten Versuch wird zusammengeführt.",
     toolarge: "Plan zu groß zum Senden — alte Einträge im Server-Log ausdünnen.",
+    rejected: "Server hat den Stand abgelehnt — App auf allen Geräten neu laden, dann synchronisieren.",
   };
 
   function dropStatusText(st) {

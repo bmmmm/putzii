@@ -486,6 +486,7 @@
       const FOREIGN = "SELFACT0"; // stands in for the user's real active plan
       const dropCleanup = () => {
         H().safeLocalStorageRemoveItem(S().K.plan(DP));
+        H().safeLocalStorageRemoveItem(S().K.backup(DP)); // importPlan writes it
         H().safeLocalStorageRemoveItem(S().K.drop(DP));
         H().safeLocalStorageRemoveItem(S().K.dropstate(DP));
       };
@@ -658,6 +659,7 @@
         stateStatus: 200,
         stateError: "no-state",
         putStatus: 200,
+        putError: "", // body.error for a non-200 PUT; "auth" when empty
         conflictsLeft: 0,
         replaysLeft: 0,
         puts: [],
@@ -683,7 +685,7 @@
               env.conflictsLeft--;
               return reply(409, { error: "conflict", rev: env.rev });
             }
-            if (env.putStatus !== 200) return reply(env.putStatus, { error: "auth" });
+            if (env.putStatus !== 200) return reply(env.putStatus, { error: env.putError || "auth" });
             if (env.replaysLeft > 0) {
               env.replaysLeft--;
               return reply(200, { rev: env.rev, at: "", replay: true, changed: false, counts: {} });
@@ -843,6 +845,107 @@
       check("sync 403 → forbidden", st.state === "error" && st.error === "forbidden");
       env.stateStatus = 200;
 
+      // --- a share-link / file import on a CONNECTED plan must reach the
+      // server: a user action, not a pull (the server never sent these
+      // events, so no ping-pong). Before, imported history stayed on this
+      // device forever while the badge showed a healthy server. ---
+      H().safeLocalStorageRemoveItem(S().K.dropstate(DP));
+      env.puts.length = 0;
+      st = await PZ.sync.tick("test-import-base", { planId: DP });
+      const activeBefore = S().loadPlanIndex().active;
+      const importSrc = mkPlan({
+        planId: DP,
+        areas: [mkArea("da01", "Küche", 7)],
+        people: [mkPerson("dp01", "Testy")],
+        events: [mkEvent("gimp.1", "da01", "dp01", 29785550)],
+      });
+      const imp = PZ.sync.importPlan(importSrc, fakeNow);
+      check(
+        "importPlan merges and reports the news",
+        st.dirty === false &&
+          !!imp &&
+          imp.knownBefore === true &&
+          imp.summary.newEvents === 1 &&
+          S().loadPlan(DP).events.some((e) => e.id === "gimp.1"),
+      );
+      check("import on a connected plan marks dirty", PZ.sync.status(DP).dirty === true);
+      st = await PZ.sync.tick("test-import-push", { planId: DP });
+      const importPut = env.puts[0];
+      const importPushed = importPut
+        ? await PZ.share.decodeStatePayload(H().base64UrlDecodeBytes(importPut.payload))
+        : null;
+      check(
+        "import is pushed with the imported event",
+        env.puts.length === 1 &&
+          !!importPushed &&
+          importPushed.events.some((e) => e.id === "gimp.1") &&
+          st.state === "idle" &&
+          st.dirty === false,
+      );
+      const impAgain = PZ.sync.importPlan(importSrc, fakeNow);
+      check(
+        "import without news stays clean",
+        !!impAgain && impAgain.summary.newEvents === 0 && PZ.sync.status(DP).dirty === false,
+      );
+      // A rename-only link is news too: the name is plan-level, no record
+      // counter sees it — without changedName it never reached the server.
+      const renamedSrc = mkPlan({
+        planId: DP,
+        name: "Neues Zuhause",
+        updatedAt: 1700000001,
+        areas: [mkArea("da01", "Küche", 7)],
+        people: [mkPerson("dp01", "Testy")],
+      });
+      const impRename = PZ.sync.importPlan(renamedSrc, fakeNow);
+      check(
+        "rename-only import counts as news",
+        !!impRename &&
+          impRename.summary.changedName === 1 &&
+          impRename.summary.newEvents === 0 &&
+          S().loadPlan(DP).name === "Neues Zuhause" &&
+          PZ.sync.status(DP).dirty === true,
+      );
+      // Undo is honest only until the import reached the server: the debounce
+      // fires after 1.5 s, the undo toast lives 8 s.
+      check("import undo allowed before the push", PZ.sync.canUndoImport(DP) === true);
+      st = await PZ.sync.tick("test-rename-push", { planId: DP });
+      check(
+        "import undo refused once pushed",
+        st.state === "idle" && st.dirty === false && PZ.sync.canUndoImport(DP) === false,
+      );
+      // importPlan activates the plan like a link open does — put the
+      // stand-in back so the rest of the suite keeps its "not active" premise.
+      const idxAfterImport = S().loadPlanIndex();
+      idxAfterImport.active = activeBefore;
+      S().savePlanIndex(idxAfterImport);
+
+      // --- refusals are not "queued": a 4xx with a named reason is
+      // deterministic, a retry cannot fix it. 429 (the rate brake) can. ---
+      env.puts.length = 0;
+      env.putStatus = 422;
+      env.putError = "events-dropped";
+      PZ.sync.markDirty(DP);
+      st = await PZ.sync.tick("test-rejected", { planId: DP });
+      check(
+        "refused push → rejected, not queued",
+        st.state === "error" &&
+          st.error === "rejected" &&
+          st.reason === "events-dropped" &&
+          st.dirty === true &&
+          env.puts.length === 1,
+      );
+      env.putError = "payload-size";
+      st = await PZ.sync.tick("test-toolarge", { planId: DP });
+      check("payload-size refusal → toolarge", st.state === "error" && st.error === "toolarge");
+      env.putStatus = 429;
+      env.putError = "rate";
+      st = await PZ.sync.tick("test-rate", { planId: DP });
+      check("rate brake while dirty → queued", st.state === "queued" && st.dirty === true);
+      env.putStatus = 200;
+      env.putError = "";
+      st = await PZ.sync.tick("test-drain", { planId: DP });
+      check("queued work drains once the server accepts", st.state === "idle" && st.dirty === false);
+
       // k2 confirm flow: one-shot check-in, confirmed by the RESPONSE — no
       // local plan involved, the stub records the exact wire body.
       env.netFail = false;
@@ -872,6 +975,7 @@
       PZ.drop.disconnect(DP);
       st = await PZ.sync.tick("t", { planId: DP });
       check("sync without creds → off", st.state === "off");
+      check("import undo always allowed without a server", PZ.sync.canUndoImport(DP) === true);
 
       // restore reality
       PZ.sync._setFetch((url, opts) => fetch(url, opts));

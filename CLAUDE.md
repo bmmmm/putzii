@@ -7,8 +7,21 @@ Cleaning-schedule PWA: vanilla HTML/CSS/JS, no build step, no dependencies
 The app works with no server at all — `#p1.` links stay the full offline
 path. The server is a peer that never sleeps, not a source of truth for the
 link path. It replaced the retired `bmmmm/putzii-drop` relay (GitHub Actions
-+ Pages); the why, and what was built differently, is in
-`docs/rebuild-plan.md`.
++ Pages); the why, what was built differently, and what the lab measured back
+then, is in `docs/rebuild-plan.md`. Both drop repos are gone (`putzii-drop`
+archived, `putzii-drop-lab` deleted, 2026-09-02) — this is the only repo.
+
+**"drop" in a name means the encrypted-state module, not the retired relay.**
+`drop.js`, `dropcrypto.js`, `server/internal/dropcrypto` and the `#d2.`/`#k2.`
+prefixes keep the word on purpose: renaming them would break the wire format
+and the Go parity goldens.
+
+**Open work lives ONLY in `docs/todo-cutover.md`** — done, blocked, and what
+each blocker hangs on. `docs/rebuild-plan.md` is the design record, not a
+task list. Operational fact both encode: the deployed instance on
+`dockworker2` is **tailnet-only** (decided 2026-09-02) — no port forward, no
+public A record — which is precisely why cutover steps 3 and 4 are blocked
+rather than forgotten.
 
 ## Identity
 
@@ -122,8 +135,11 @@ go build -C server -o /tmp/putzii-server ./cmd/putzii-server
 
 - **The one command = the CI chain:** `scripts/check.sh` — gofmt, vet,
   parity fixtures, `go test` Berlin+UTC with `PUTZII_REQUIRE_GOLDEN=1`,
-  Go→Node vectors, build, self-check Berlin+UTC, sw-version (`--docker`
-  adds the image build + version stamp). Green here means green in `ci.yml`.
+  Go→Node vectors, build, self-check Berlin+UTC **and again Berlin+UTC with
+  `PUTZII_SEED_ACTIVE=1`** (only the unseeded pair exercises the empty-store
+  branch, only the seeded pair asserts the device's own plan came back
+  untouched — four runs, not two), sw-version (`--docker` adds the image
+  build + version stamp). Green here means green in `ci.yml`.
   Hook install, once per clone:
   `ln -sf "$(git rev-parse --show-toplevel)/scripts/hooks/50-sw-version" "$(git rev-parse --git-path hooks)/pre-commit.d/"`
   (absolute source path — a relative one from a subdirectory makes a dangling

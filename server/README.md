@@ -98,8 +98,15 @@ Payload ≤ 64 kB, Dekomprimiert ≤ 512 kB, Events ≤ 500, Areas/People ≤ 20
 Wochen ≤ 400. Die Rate-Bremse greift bei anhaltend > 1 Write/Minute.
 
 Ein Haushalt, der an die 500 Events stößt, kann nicht mehr pushen — das ist
-gewollt und war im Drop genauso. Der Ausweg ist Ausdünnen über
-`plan export` → bearbeiten → `plan import --force`.
+gewollt und war im Drop genauso. **Einen wirksamen Ausweg gibt es heute
+nicht.** `plan export` → bearbeiten → `plan import --force` sieht aus wie
+einer, ist aber keiner: `--force` umgeht zwar den Append-only-Guard, doch das
+erste Gerät mit der alten Historie schreibt sie beim nächsten Push
+vollständig zurück (`tick()` pullt immer zuerst, `mergePlans` ist rein
+additiv, der folgende Push ist damit eine Obermenge — und der Guard feuert
+nur bei *Verlust*). Warum ein echtes `plan compact` eine eigene, große
+Arbeitseinheit wäre, steht in
+[`docs/todo-cutover.md`](../docs/todo-cutover.md) unter „Danach, optional".
 
 ## Deploy
 
@@ -107,6 +114,11 @@ gewollt und war im Drop genauso. Der Ausweg ist Ausdünnen über
 **Repo-Root**, weil das Image Binary *und* App-Dateien bündelt. Das
 Compose-File zielt auf `dockworker2` in bc101 (Traefik-Labels, externes
 `traefik`-Netz) — dasselbe Muster wie die anderen Dienste dort.
+
+Die laufende Instanz ist **Tailnet-only** (entschieden 2026-09-02): kein
+Port-Forward, kein öffentlicher A-Record. Sie ist damit aus dem Tailnet
+erreichbar, aus dem Mobilfunk nicht — siehe
+[`docs/todo-cutover.md`](../docs/todo-cutover.md).
 
 ```bash
 # im Repo-Root; der Stempel erscheint in `putzii-server version` und im Start-Log

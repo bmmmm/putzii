@@ -115,7 +115,11 @@ node server/tools/selfcheck.mjs .
 
 - Einstieg: `CLAUDE.md` (Konventionen, Dev-Fallen), dann `share.js`
   (Wire-Codec + Merge — das Herzstück), `store.js`, `model.js`. Für den
-  Server: `server/README.md` und `docs/rebuild-plan.md`.
+  Server: `server/README.md` und `docs/rebuild-plan.md` (Design und die
+  Begründungen dahinter).
+- **Offene Arbeit steht ausschließlich in `docs/todo-cutover.md`** — was
+  erledigt ist, was blockiert ist und woran es hängt. `rebuild-plan.md` ist
+  das Design-Dokument, keine Aufgabenliste.
 - Invarianten: Events sind append-only, Dedup by id, first-seen-wins.
   Config-Merge ist LWW per striktem `updatedAt >`. IDs bleiben IDs (keine
   Indizes im Wire-Format). `ts` ist minutengenau quantisiert.

@@ -2,9 +2,11 @@
 
 Design-Dokument des Umbaus vom `putzii-drop`-Relay (GitHub Actions + Pages)
 auf einen selbst gehosteten Go-Server im selben Repo. Festgehalten hier, weil
-`putzii-drop` archiviert und gelöscht wird.
+die Drop-Repos stillgelegt sind und ihre Begründungen sonst mit ihnen
+verschwänden.
 
-Stand: 2026-08-22. Der Server-Code liegt in [`server/`](../server/).
+Stand: 2026-09-02. Der Server-Code liegt in [`server/`](../server/); die
+offene Arbeit steht in [`todo-cutover.md`](todo-cutover.md).
 
 ## Warum überhaupt
 
@@ -45,11 +47,21 @@ Server, echte Token-Prüfung, State nicht mehr öffentlich.
    den Schlüssel, weil er für das Check-in-Minting entschlüsseln muss — genau
    wie vorher die Actions-Runtime. Verschlüsselung schützt hier den
    Datenträger und das Backup, nicht vor dem Server selbst.
-5. **Öffentlich erreichbar über `putzii.bc101.de`** (Traefik + Let's Encrypt
-   auf `dockworker2`). Check-ins laufen über verteilte WiFi-/MQTT-Buttons und
-   QR-Codes in einem Haushalt, der kein LAN mit bc101 teilt — Tailscale auf
-   jedem Button ist unrealistisch. Was schützt, ist die Token-Prüfung im
-   Server, nicht die Netzwerkposition.
+5. **Erreichbar über `putzii.bc101.de`** (Traefik + Let's Encrypt auf
+   `dockworker2`). Was schützt, ist die Token-Prüfung im Server, nicht die
+   Netzwerkposition — deshalb war *öffentlich* erreichbar geplant: Check-ins
+   laufen über verteilte WiFi-/MQTT-Buttons und QR-Codes in einem Haushalt,
+   der kein LAN mit bc101 teilt, und Tailscale auf jedem Button ist
+   unrealistisch.
+
+   **Revidiert am 2026-09-02: der Betrieb ist Tailnet-only.** Kein
+   Port-Forward, kein öffentlicher A-Record, kein Tunnel ins geteilte
+   bc101-Netz. Der Dienst ist damit intern beweisbar, aber ein Haushaltshandy
+   im Mobilfunk erreicht ihn nicht. Das ist keine offene Aufgabe, sondern eine
+   getroffene Entscheidung — und sie blockiert die Runbook-Schritte 3 und 4
+   (Links/QRs neu ausgeben, Home Assistant anbinden). Bis sie fällt, teilt der
+   Haushalt weiter offline per `#p1.`. Das Zertifikat kostet die Entscheidung
+   nichts: Traefik nutzt dort die Cloudflare-DNS-01-Challenge, nicht HTTP-01.
 6. **MQTT/Home Assistant: v1 nur der HTTP-Webhook.** HA und ein MQTT-Broker
    laufen zuhause bereits produktiv (`10.0.20.3`). Die Trigger-Logik bleibt
    dort; eine HA-Automation ruft `POST https://putzii.bc101.de/api/checkin`.
@@ -158,10 +170,14 @@ config, link) sind übernommen und um Caps, Replay-/Rate-Guard, Check-in-Minting
 und Paritäts-Tests ergänzt; der Client ist umgestellt (`sync.js`, `drop.js`,
 CSP, `c.html`) und der Self-Check läuft headless.
 
-Was bleibt — Deploy auf bc101, einmalige Zustandsübernahme, Link- und
-QR-Neuausgabe, HA-Anbindung, Stilllegung des Drops — steht **nur** in
-[`todo-cutover.md`](todo-cutover.md), mit Reihenfolge und Kommandos. Eine
-zweite Liste hier würde bloß auseinanderlaufen.
+Seither ebenfalls erledigt: der Deploy auf `dockworker2` (2026-09-02) und die
+Stilllegung beider Drop-Repos — `putzii-drop` archiviert, `putzii-drop-lab`
+entschärft und gelöscht.
+
+Was bleibt — einmalige Zustandsübernahme, Link- und QR-Neuausgabe,
+HA-Anbindung — steht **nur** in [`todo-cutover.md`](todo-cutover.md), mit
+Reihenfolge, Kommandos und dem jeweiligen Blocker. Eine zweite Liste hier
+würde bloß auseinanderlaufen.
 
 ## Verifikation
 
@@ -184,3 +200,50 @@ Was heute grün ist:
 Was erst am Deploy beweisbar ist: Erreichbarkeit und Zertifikat von außen,
 die HA-Kette Button → Heim-MQTT → Webhook → bc101, und ein Zugriff ohne
 gültigen Token gegen die echte Instanz.
+
+## Anhang: was das Lab gemessen hat (2026-08-20)
+
+Diese Zahlen stammen aus `putzii-drop-lab`, einem Wegwerf-Repo mit sieben
+Sonden gegen die echte GitHub-Actions-Plattform. Repo und Klon sind am
+2026-09-02 gelöscht worden; die Messungen stehen hier, weil sie mehrere
+heutige Design-Entscheidungen tragen — ohne sie liest sich der Code an diesen
+Stellen wie Willkür.
+
+- **V1 — eine Concurrency-Gruppe hat genau EINEN wartenden Slot.** Vier
+  schnelle Dispatches: Lauf 2 und 3 wurden gecancelt, nur der erste und der
+  letzte überlebten. *Trägt:* dass Mutationen nie über Concurrency-Gruppen
+  serialisiert wurden. Für reine Deploys ist `cancel-in-progress: true`
+  dagegen korrekt (der neueste Stand enthält alles).
+- **V3 — das Input-Kliff von `workflow_dispatch` liegt bei 65.006 Zeichen**
+  (65.535 → HTTP 422 „inputs are too large"), also *unterhalb* des
+  dokumentierten Werts. Alle Payloads von 8 bis 65 kB kamen byte-verlustfrei
+  an (sha256 im Runner-Log geprüft). *Trägt:* dass nie gechunkt wurde — das
+  Envelope liegt bei 3–11 kB.
+- **V4 — `workflow_run` feuert zuverlässig**, 10 von 10, Latenz ~1–2 s,
+  Dispatch bis fertigen Follower 21–28 s. *Trägt:* das Zwei-Workflow-Muster
+  (schreiben, dann deployen) statt eines Monolithen.
+- **V5 — Query-Param-Cache-Busting auf GitHub Pages ist WIRKUNGSLOS.** Ein
+  eindeutiges `?b=` wurde weiterhin mit `x-cache: HIT` aus demselben Objekt
+  beantwortet: der Query-String ist nicht Teil des Cache-Keys. Ein Deploy
+  purged die Edge dagegen sofort. *Trägt:* dass der Lesepfad der App
+  `cache:"no-store"` benutzt und **keinen** Bust-Parameter — und dass es nie
+  unveränderliche Rev-Pfade brauchte.
+- **V7 — die App-Module laufen unverändert in Node** (`node:vm` mit nacktem
+  `window`), inklusive Wire-Round-Trip, Merge-Idempotenz und gzip-Byte-Parität.
+  Drei Details, die bis heute gelten:
+  - **Die TZ-Divergenz ist real.** Sonntag 22:30 UTC ist in Berlin bereits
+    Montag 00:30 — `isoWeekKey` sagt dann `2026-W34` (UTC) gegen `2026-W35`
+    (Berlin). *Trägt:* `TZ=Europe/Berlin` im Dockerfile, in `ci.yml` und die
+    doppelten Läufe unter beiden Zonen in `scripts/check.sh`.
+  - **Cross-Realm-`instanceof`-Falle.** `isoWeekKey` prüft `d instanceof
+    Date`; ein im Node-Realm gebautes `Date` fällt in der vm-Realm durch
+    diese Prüfung. *Trägt:* dass `server/tools/loadapp.mjs` den `Date`-
+    Konstruktor in die Sandbox hineinreicht — nicht entfernen.
+  - 2026 hat **53 ISO-Wochen** (es beginnt an einem Donnerstag), `2026-W53`
+    ist gültig.
+- **V2/V6 — die PAT-Rechteproben.** Ein Dispatch mit absichtlich fehlenden
+  Pflicht-Inputs liefert 422 und beweist damit `Actions: write`, ohne einen
+  Lauf zu starten; Contents-Write und Secrets-Read kamen als 403 zurück.
+  *Trägt:* die Erkenntnis, dass ein Relay-PAT ein physisches Bearer-Secret in
+  Kühlschrank-QR-Codes ist — einer der zwei Gründe für den ganzen Umbau
+  (siehe „Warum überhaupt").

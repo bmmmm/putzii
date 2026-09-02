@@ -4,7 +4,9 @@ Der Code ist fertig und auf `main` (siehe [`rebuild-plan.md`](rebuild-plan.md)
 für die Entscheidungen). Was hier steht, braucht echte Infrastruktur oder
 Handgriffe am Haushalt — nichts davon lässt sich am Schreibtisch beweisen.
 
-**Stand 2026-09-02.** Schritt 5 ist **erledigt** — vorgezogen, siehe dort.
+**Stand 2026-09-02 (abends).** Schritt 5 ist **erledigt** — vorgezogen, siehe
+dort; Schritt **5b** ist am selben Tag dazugekommen: `putzii-drop-lab`, ein
+zweiter, noch scharfer Drop, den bis dahin keine Liste kannte.
 Schritt 1 ist **erledigt**: der Dienst läuft auf `dockworker2`, intern
 bewiesen (Details dort). Schritt 2 (Zustandsübernahme) ist machbar, sobald
 er gewollt ist. Schritt 3 und 4
@@ -261,6 +263,49 @@ aktiven Workflows weiterlief. Warten hätte nur die Exposition verlängert.
       kann ihn weder lesen noch löschen
 - [ ] `~/offline_coding/putzii-drop` lokal aufräumen, wenn nichts mehr
       gebraucht wird (Clone ist sauber, HEAD `5e33914`)
+
+### 5b. `putzii-drop-lab` — der zweite Drop, **erledigt am 2026-09-02**
+
+**Dieser Schritt fehlte hier bis zum 2026-09-02 vollständig.** Das Lab galt
+als Wegwerf-Repo („No real data. Delete after putzii-drop phase 4", so seine
+eigene README) und stand deshalb in keiner Checkliste. Gemessen war es das
+Gegenteil eines toten Repos:
+
+- öffentlich und **nicht** archiviert, während der Drop längst zu war
+- **neun aktive Workflows**, darunter echte Kopien der Produktions-Workflows
+  `apply`, `ci`, `pages`, `selfcheck` — angelegt von `dropii setup` direkt
+  über die GitHub-API, weshalb sie nie im lokalen Klon auftauchten
+- `pages` mit `cron: */15 * * * *`, `selfcheck` täglich um 03:23 — der
+  letzte Lauf war **am Tag der Stilllegung selbst**
+- `selfcheck` checkte täglich `bmmmm/putzii` beim gepinnten
+  `PUTZII_REF=68f95ff8` aus — ein Commit vom 2026-08-19, **32 Commits vor
+  HEAD**, also vor dem gesamten Server-Umbau. Ein grüner täglicher Gate, der
+  einen zwei Wochen alten Schnappschuss prüfte: er beruhigte, statt zu messen
+- **`DROP_KEY_B64` und `DROP_TOKENS_SHA256` noch installiert** — genau die
+  beiden Secrets, deren Löschung oben für den Drop abgehakt ist
+- Pages live, publizierte `site/plans/SetupGt1.json` (verschlüsselter Stand)
+- Remote-`main` `73082b9`, **20 Commits vor dem lokalen Klon** `2cf6ea7`,
+  dessen `git status` trotzdem „in sync" meldete (veralteter Tracking-Ref)
+
+Reihenfolge war Absicht: erst entwaffnen, dann löschen — so ist die
+Exposition auch dann weg, wenn die Löschung scheitert.
+
+- [x] Beide Secrets gelöscht; `actions/secrets` → `total_count: 0`
+- [x] Alle neun Workflows deaktiviert → `disabled_manually`, Crons gestoppt
+- [x] Pages abgeschaltet (`has_pages: false`, `GET /pages` → 404)
+- [x] Vollständige Historie als Bundle gesichert
+      (`~/offline_coding/_archive/putzii-drop-lab-73082b9.bundle`,
+      `git bundle verify` → „complete history"), dazu die einzige nirgends
+      sonst existierende Datei `runner/test-v7.mjs`
+- [x] Die lab-gemessenen Fakten (V1–V7) nach `rebuild-plan.md` gerettet —
+      sie begründen Design-Entscheidungen, die sonst wie Willkür aussähen
+- [ ] Repo löschen: `gh repo delete bmmmm/putzii-drop-lab --yes`
+      (in der Agent-Session durch eine Schutzregel gesperrt)
+- [ ] `~/offline_coding/putzii-drop-lab` lokal entfernen
+
+**Die Lehre:** ein Repo, das „Wegwerf" heißt, aber Secrets, Crons und einen
+Deploy-Pfad bekommt, ist Produktion. Es taucht in keiner Liste auf, gerade
+weil sein Name sagt, es sei keine wert.
 
 ---
 

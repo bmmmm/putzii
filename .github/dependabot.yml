@@ -1,5 +1,5 @@
 # Two ecosystems: the workflow actions, and the Docker base images the
-# server image is built FROM (golang:1.26-alpine, alpine:3.22). No npm block —
+# server image is built FROM (golang:1.27-alpine, alpine:3.24). No npm block —
 # the app has no build toolchain and no package.json.
 version: 2
 updates:

@@ -59,8 +59,13 @@
   const liveState = new Map(); // planId → {state, errorKind, errorReason}
   const debounceTimers = new Map(); // planId → timer handle
   // `running` stays GLOBAL on purpose: one lock across all plans keeps a
-  // multi-plan device from starting a network storm, and whatever it skips
-  // heals at the next trigger.
+  // multi-plan device from starting a network storm. What it skips heals at
+  // the next trigger — but note the limit: the passive triggers (visibility,
+  // online, boot) all tick activePlanId(), so a connected but INACTIVE plan
+  // has no passive retry. Its only path back is another markDirty on it, or
+  // becoming active. Today every mutation callsite works on the active plan,
+  // so nothing is stranded; a future background multi-plan sync would have
+  // to make the lock per-plan or give the passive triggers a plan list.
   let running = false;
   let lastVisibilityTick = 0;
   const keyCache = { encKey: "", key: null };
@@ -193,12 +198,20 @@
     // costs a round-trip for an answer we already have. The client never
     // shrinks to fit — the server overwrites rather than merges, so a
     // truncated push would erase history (invariant 13). Both sides refuse.
+    //
+    // WEEKS ARE DELIBERATELY NOT CHECKED HERE. They are the one cap the
+    // server does not refuse on this path: FromWire clamps them structurally
+    // while decoding (wire.go, `i >= maxWeeks` → break), so CheckCaps' weeks
+    // branch is unreachable for a state PUT and the push is ACCEPTED with the
+    // surplus rows dropped. Refusing locally would block an unrelated edit
+    // with "Plan zu groß" and no action the household could take —
+    // mergePlans unions weeks without a bound (pruneWeeks only runs from
+    // saveWeek), so two devices apart can briefly exceed 400 between them.
     const caps = CAPS();
     if (
       plan.events.length > caps.maxEvents ||
       plan.areas.length > caps.maxAreas ||
-      plan.people.length > caps.maxPeople ||
-      (plan.weeks || []).length > caps.maxWeeks
+      plan.people.length > caps.maxPeople
     )
       throw fail("toolarge");
     const payload = await PZ.share.encodeStatePayload(plan);

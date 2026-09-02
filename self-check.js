@@ -1047,6 +1047,32 @@
           "a plan over the event cap is refused without a round-trip",
           st.state === "error" && st.error === "toolarge" && env.puts.length === 0 && st.dirty === true,
         );
+        // …but weeks are the ONE cap that must NOT be pre-flighted: the
+        // server clamps them while decoding instead of refusing (wire.go
+        // breaks at maxWeeks), so it accepts such a push. Refusing locally
+        // would strand an unrelated edit behind "Plan zu groß" with nothing
+        // the household could do about it — and mergePlans unions weeks
+        // unbounded, so two devices apart can exceed the cap in passing.
+        env.puts.length = 0;
+        const weeksOver = JSON.parse(JSON.stringify(capsSafe));
+        weeksOver.weeks = [];
+        for (let i = 0; i <= PZ.share.SERVER_CAPS.maxWeeks; i++) {
+          const yr = 2000 + Math.floor(i / 52);
+          const wk = (i % 52) + 1;
+          weeksOver.weeks.push({
+            id: `${yr}-W${String(wk).padStart(2, "0")}`,
+            days: {},
+            createdAt: 1700000000,
+            updatedAt: 1700000000 + i,
+          });
+        }
+        S().savePlan(weeksOver);
+        PZ.sync.markDirty(DP);
+        st = await PZ.sync.tick("test-weeks-over", { planId: DP });
+        check(
+          "more weeks than the cap still pushes — the server clamps, it does not refuse",
+          st.state === "idle" && env.puts.length === 1 && st.dirty === false,
+        );
         S().savePlan(capsSafe);
 
         // k2 confirm flow: one-shot check-in, confirmed by the RESPONSE — no

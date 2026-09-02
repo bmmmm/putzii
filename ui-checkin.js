@@ -267,6 +267,10 @@
           H().showToast("Eintrag entfernt.");
           state.personId = "";
           state.newName = "";
+          // #checkin-drop-line dies with this rerender, and on c.html this
+          // module is the slot's only, permanent owner — there is nothing to
+          // hand back to, so release instead of restore.
+          if (PZ.sync) PZ.sync.onChanged = null;
           renderContext(plan, area);
         }
       });
@@ -289,11 +293,7 @@
       PZ.sync.onChanged = (st) => {
         const line = document.getElementById("checkin-drop-line");
         if (!line) return;
-        if (st.state === "idle" && !st.dirty) line.textContent = "Server ✓ synchron — ist bei allen.";
-        else if (st.state === "queued") line.textContent = "Server: wird nachgeholt, sobald online.";
-        else if (st.state === "error" && st.error === "rejected")
-          line.textContent = "Server hat den Stand abgelehnt — Eintrag ist lokal gesichert, App neu laden.";
-        else if (st.state === "error") line.textContent = "Server nicht erreichbar — Eintrag ist lokal gesichert.";
+        line.textContent = dropLineText(st);
       };
     } else {
       c.appendChild(el("p", "muted", "Ohne Teilen sehen die anderen den Eintrag nicht."));
@@ -557,6 +557,24 @@
     renderContext(plan, area);
   }
 
+  // The server line under a fresh check-in. Pure and exported so the suite
+  // can pin the words: `pulling`/`pushing` used to fall through every branch
+  // and leave the placeholder "wird gesendet…" standing after the sync had
+  // long finished.
+  function dropLineText(st) {
+    if (!st) return "";
+    if (st.state === "pulling") return "Server: wird abgeglichen…";
+    if (st.state === "pushing") return "Server: wird gesendet…";
+    if (st.state === "idle" && !st.dirty) return "Server ✓ synchron — ist bei allen.";
+    if (st.state === "queued") return "Server: wird nachgeholt, sobald online.";
+    if (st.state === "error" && st.error === "rejected")
+      return "Server hat den Stand abgelehnt — Eintrag ist lokal gesichert, App neu laden.";
+    if (st.state === "error") return "Server nicht erreichbar — Eintrag ist lokal gesichert.";
+    // idle-but-dirty: the 1.5 s debounce has not fired yet. A word of its own,
+    // so "pushing" is not merely indistinguishable from the fallback.
+    return "Server: wird gleich gesendet…";
+  }
+
   // c.html does not load router.js — inline the tiny classifier subset.
   function classifyLocal(rawHash) {
     const frag = String(rawHash || "").replace(/^#/, "");
@@ -570,11 +588,15 @@
     return { kind: "unknown" };
   }
 
-  PZ.uiCheckin = { boot };
+  PZ.uiCheckin = { boot, dropLineText };
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", boot);
-  } else {
-    boot();
+  // Guarded so the headless self-check runner can load this module for
+  // dropLineText; in a browser nothing changes.
+  if (typeof document !== "undefined") {
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", boot);
+    } else {
+      boot();
+    }
   }
 })();

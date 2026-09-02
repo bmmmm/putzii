@@ -71,6 +71,9 @@ const modules = [
   // A UI module, loaded on purpose: its module scope touches no DOM, and
   // the Teilen tab's German server copy is checked nowhere else.
   "ui-share.js",
+  // Same reason. It boots itself only where there IS a document, so in this
+  // realm it just defines dropLineText.
+  "ui-checkin.js",
   "self-check.js",
 ];
 for (const f of modules) {

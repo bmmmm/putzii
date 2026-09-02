@@ -1062,6 +1062,29 @@
       );
     }
 
+    // c.html's server line under a fresh check-in.
+    if (PZ.uiCheckin && PZ.uiCheckin.dropLineText) {
+      const L = PZ.uiCheckin.dropLineText;
+      // The regression: both in-flight states fell through every branch and
+      // left the placeholder standing after the sync had finished.
+      check("checkin line: pulling is named", L({ state: "pulling" }) === "Server: wird abgeglichen…");
+      check("checkin line: pushing is named", L({ state: "pushing" }) === "Server: wird gesendet…");
+      check("checkin line: synced", L({ state: "idle", dirty: false }).includes("ist bei allen"));
+      check(
+        "checkin line: idle but dirty is waiting on the debounce",
+        L({ state: "idle", dirty: true }) === "Server: wird gleich gesendet…",
+      );
+      check("checkin line: queued", L({ state: "queued" }).includes("nachgeholt"));
+      check(
+        "checkin line: a refusal says the entry is safe locally",
+        L({ state: "error", error: "rejected" }).includes("neu laden"),
+      );
+      check(
+        "checkin line: any other error keeps the reassurance",
+        L({ state: "error", error: "net" }).includes("lokal gesichert"),
+      );
+    }
+
     // --- device identity: resolveMe ---
     {
       const plan = mkPlan({

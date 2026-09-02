@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-const VERSION = "putzii-v3.1-2026-09-02d";
+const VERSION = "putzii-v3.1-2026-09-02e";
 const APP_SHELL = [
   "./",
   "./index.html",

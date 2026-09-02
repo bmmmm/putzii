@@ -4,12 +4,18 @@ Der Code ist fertig und auf `main` (siehe [`rebuild-plan.md`](rebuild-plan.md)
 für die Entscheidungen). Was hier steht, braucht echte Infrastruktur oder
 Handgriffe am Haushalt — nichts davon lässt sich am Schreibtisch beweisen.
 
-**Stand 2026-09-02 (abends).** Schritt 5 ist **erledigt** — vorgezogen, siehe
-dort; Schritt **5b** ist am selben Tag dazugekommen: `putzii-drop-lab`, ein
-zweiter, noch scharfer Drop, den bis dahin keine Liste kannte.
+**Stand 2026-09-03.** Schritt 5 ist **vollständig erledigt** — beide
+Drop-Repos sind gelöscht, der PAT widerrufen. Schritt **5b** kam am
+2026-09-02 dazu: `putzii-drop-lab`, ein zweiter, noch scharfer Drop, den bis
+dahin keine Liste kannte.
+
 Schritt 1 ist **erledigt**: der Dienst läuft auf `dockworker2`, intern
-bewiesen (Details dort). Schritt 2 (Zustandsübernahme) ist machbar, sobald
-er gewollt ist. Schritt 3 und 4
+bewiesen, seit 2026-09-03 überwacht (strikte Probe) und gesichert
+(täglicher Pull, Restore bewiesen). Von Schritt 2 (Zustandsübernahme) ist
+das Backup **vorgezogen** erledigt — es hinterher zu bauen hieße, den einen
+Moment ungesichert zu lassen, in dem erstmals echte Daten entstehen. Der
+Rest von Schritt 2 ist machbar, sobald er gewollt ist; seine einzige echte
+Voraussetzung ist der `enc_key` im Passwortmanager. Schritt 3 und 4
 sind **bewusst zurückgestellt**: entschieden ist Tailnet-only, also kein
 Port-Forward, kein öffentlicher A-Record, kein Tunnel ins geteilte
 bc101-Netz. Damit ist der Dienst intern beweisbar, aber ein Haushalts-Handy
@@ -179,8 +185,17 @@ mit `decrypt state` fehl.
 
 - [ ] `putzii-server plan show` listet Bereiche und Personen korrekt auf
 - [ ] `putzii-server plan export --file /tmp/backup.json` als Sicherung
-- [ ] Backup von `server/data/` einrichten — das ist das **einzige**
-      zustandsbehaftete Verzeichnis
+- [x] Backup von `server/data/` eingerichtet (2026-09-03) — das ist das
+      **einzige** zustandsbehaftete Verzeichnis. `bc101-monitor` (CT 128)
+      zieht es täglich 04:40 Berlin per erzwungenem SSH-Kommando, hält 14
+      Stände, meldet sich an einen Kuma-Push-Monitor. **Restore bewiesen**:
+      zurückgespielt und `doctor` darauf → `0 failed`. Vorgezogen, weil ein
+      Backup nach der Zustandsübernahme zu spät kommt. Details und die
+      gemessenen Sackgassen: `servers/bc101/guests/dockworker2/putzii/README.md`
+- [ ] **`enc_key` in den Passwortmanager** — von Hand, ein Agent darf ihn
+      nicht lesen. Das Backup enthält ihn zwar, aber Schlüssel und Ciphertext
+      am selben Ort sind ein einzelner Verlustpunkt. **Das ist die
+      Voraussetzung für diesen Schritt**, nicht seine Nachbereitung
 
 ---
 
@@ -262,13 +277,13 @@ aktiven Workflows weiterlief. Warten hätte nur die Exposition verlängert.
       2027-08-17 weitergelebt und steckte in jedem alten `#d1.`-Link. Nicht
       agent-prüfbar: eine Session kann einen PAT weder lesen noch auflisten —
       diese Zeile steht auf der Aussage des Nutzers, nicht auf einer Messung
-- [ ] Repo löschen: `gh repo delete bmmmm/putzii-drop --yes` — entschieden am
-      2026-09-02, in der Agent-Session durch eine Schutzregel gesperrt. Die
-      Historie liegt verifiziert als
-      `~/offline_coding/_archive/putzii-drop-5e33914.bundle`. Solange es
-      steht, lesen sich seine README und CLAUDE.md wie ein lebendes System —
-      archivierte Repos sind schreibgeschützt, ein Hinweis lässt sich also
-      nicht nachtragen
+- [x] Repo gelöscht (2026-09-03) — `gh repo view` findet es nicht mehr, und
+      `bmmmm/putzii` ist das einzige verbliebene putzii-Repo. Die Historie
+      liegt verifiziert als
+      `~/offline_coding/_archive/putzii-drop-5e33914.bundle`. Der Grund fürs
+      Löschen statt Stehenlassen: ein archiviertes Repo ist schreibgeschützt,
+      seine README und CLAUDE.md lasen sich wie ein lebendes System, und ein
+      Hinweis darauf ließ sich nicht mehr nachtragen
 - [x] `~/offline_coding/putzii-drop` lokal entfernt (2026-09-02). Die
       Historie liegt als Bundle in
       `~/offline_coding/_archive/putzii-drop-5e33914.bundle`

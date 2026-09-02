@@ -257,10 +257,18 @@ aktiven Workflows weiterlief. Warten hätte nur die Exposition verlängert.
 - [x] Vulnerability-Alerts aus
 - [x] GitHub Pages abgeschaltet — `https://bmmmm.github.io/putzii-drop/`
       antwortet `404`
-- [x] Repo archiviert (weiterhin public; die Löschung macht der Nutzer)
-- [ ] **PAT löschen** — läuft sonst bis 2027-08-17 weiter und steckt noch in
-      jedem alten Link. Gehört ins Terminal des Nutzers; eine Agent-Session
-      kann ihn weder lesen noch löschen
+- [x] Repo archiviert
+- [x] **PAT gelöscht** (2026-09-02, vom Nutzer bestätigt). Er hätte sonst bis
+      2027-08-17 weitergelebt und steckte in jedem alten `#d1.`-Link. Nicht
+      agent-prüfbar: eine Session kann einen PAT weder lesen noch auflisten —
+      diese Zeile steht auf der Aussage des Nutzers, nicht auf einer Messung
+- [ ] Repo löschen: `gh repo delete bmmmm/putzii-drop --yes` — entschieden am
+      2026-09-02, in der Agent-Session durch eine Schutzregel gesperrt. Die
+      Historie liegt verifiziert als
+      `~/offline_coding/_archive/putzii-drop-5e33914.bundle`. Solange es
+      steht, lesen sich seine README und CLAUDE.md wie ein lebendes System —
+      archivierte Repos sind schreibgeschützt, ein Hinweis lässt sich also
+      nicht nachtragen
 - [x] `~/offline_coding/putzii-drop` lokal entfernt (2026-09-02). Die
       Historie liegt als Bundle in
       `~/offline_coding/_archive/putzii-drop-5e33914.bundle`

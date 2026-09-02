@@ -15,7 +15,7 @@ COPY server/go.mod ./server/go.mod
 COPY server/ ./server/
 RUN CGO_ENABLED=0 go build -C server -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/putzii-server ./cmd/putzii-server
 
-FROM alpine:3.22
+FROM alpine:3.24
 # git only for the optional git_audit history; ca-certificates so an operator
 # shelling in can reach the outside world. The server itself makes no
 # outbound calls.

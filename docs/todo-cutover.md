@@ -261,8 +261,9 @@ aktiven Workflows weiterlief. Warten hätte nur die Exposition verlängert.
 - [ ] **PAT löschen** — läuft sonst bis 2027-08-17 weiter und steckt noch in
       jedem alten Link. Gehört ins Terminal des Nutzers; eine Agent-Session
       kann ihn weder lesen noch löschen
-- [ ] `~/offline_coding/putzii-drop` lokal aufräumen, wenn nichts mehr
-      gebraucht wird (Clone ist sauber, HEAD `5e33914`)
+- [x] `~/offline_coding/putzii-drop` lokal entfernt (2026-09-02). Die
+      Historie liegt als Bundle in
+      `~/offline_coding/_archive/putzii-drop-5e33914.bundle`
 
 ### 5b. `putzii-drop-lab` — der zweite Drop, **erledigt am 2026-09-02**
 
@@ -299,9 +300,8 @@ Exposition auch dann weg, wenn die Löschung scheitert.
       sonst existierende Datei `runner/test-v7.mjs`
 - [x] Die lab-gemessenen Fakten (V1–V7) nach `rebuild-plan.md` gerettet —
       sie begründen Design-Entscheidungen, die sonst wie Willkür aussähen
-- [ ] Repo löschen: `gh repo delete bmmmm/putzii-drop-lab --yes`
-      (in der Agent-Session durch eine Schutzregel gesperrt)
-- [ ] `~/offline_coding/putzii-drop-lab` lokal entfernen
+- [x] Repo gelöscht (2026-09-02) — `gh repo view` findet es nicht mehr
+- [x] `~/offline_coding/putzii-drop-lab` lokal entfernt
 
 **Die Lehre:** ein Repo, das „Wegwerf" heißt, aber Secrets, Crons und einen
 Deploy-Pfad bekommt, ist Produktion. Es taucht in keiner Liste auf, gerade

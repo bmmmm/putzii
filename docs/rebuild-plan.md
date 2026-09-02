@@ -32,10 +32,15 @@ Server, echte Token-Prüfung, State nicht mehr öffentlich.
 
 ## Getroffene Entscheidungen
 
-1. **Ein Repo.** `bmmmm/putzii` enthält App und Server. `putzii-drop` wird
-   archiviert. Damit entfällt der gepinnte Commit (`PUTZII_REF`) und mit ihm
-   die ganze Drift-Mechanik — Parität ist jetzt eine Build-Eigenschaft
-   (siehe „Parität" unten).
+1. **Ein Repo.** `bmmmm/putzii` enthält App und Server. Damit entfällt der
+   gepinnte Commit (`PUTZII_REF`) und mit ihm die ganze Drift-Mechanik —
+   Parität ist jetzt eine Build-Eigenschaft (siehe „Parität" unten).
+
+   Wie nötig das war, hat sich beim Aufräumen gezeigt: `putzii-drop-lab` hielt
+   ein solches `PUTZII_REF` noch bis zum 2026-09-02 und testete damit täglich
+   einen Commit, der 32 hinter `main` lag — grün, und ohne jede Aussage über
+   den heutigen Code. Genau diese Klasse von Selbstberuhigung fällt mit einem
+   Repo weg.
 2. **Der Server ist alleinige Quelle der Wahrheit** für den Server-Pfad.
    `mergePlans` bleibt exakt dort, wo es schon lief: clientseitig in
    `share.js`. Der Server führt es nie aus.

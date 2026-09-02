@@ -190,8 +190,13 @@
     if (res.status === 401 || res.status === 403) throw statusFail(res.status);
     if (!res.ok) {
       const body = await readJson(res);
-      // Our plan outgrew the cap: a different fix than "try again later".
-      if (res.status === 413 || body.error === "payload-size") throw fail("toolarge");
+      // Our plan outgrew a cap: a different fix than "try again later".
+      // `caps` (too many events/areas/people/weeks) and `payload-size` (too
+      // many bytes) are the same problem to the user — the plan has to get
+      // smaller. The `rejected` copy would tell them to reload the app,
+      // which changes nothing.
+      if (res.status === 413 || body.error === "payload-size" || body.error === "caps")
+        throw fail("toolarge");
       // Transient — the rate brake, a server hiccup, a body-less proxy
       // answer — may queue and retry.
       if (res.status === 429 || res.status >= 500 || !body.error) throw fail("net");

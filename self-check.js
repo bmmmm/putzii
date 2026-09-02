@@ -943,6 +943,13 @@
         env.putError = "payload-size";
         st = await PZ.sync.tick("test-toolarge", { planId: DP });
         check("payload-size refusal → toolarge", st.state === "error" && st.error === "toolarge");
+        // `caps` is the count-based sibling of payload-size (api.go returns
+        // it for events/areas/people/weeks over the limit). It used to fall
+        // through to `rejected`, whose copy says "reload the app" — an
+        // instruction that cannot help.
+        env.putError = "caps";
+        st = await PZ.sync.tick("test-caps", { planId: DP });
+        check("caps refusal → toolarge, not rejected", st.state === "error" && st.error === "toolarge");
         env.putStatus = 429;
         env.putError = "rate";
         env.puts.length = 0;
@@ -1068,6 +1075,17 @@
         (() => {
           const t = T({ state: "idle", stale: true, lastSyncAt: NOW - 60000 }, NOW);
           return t.includes("altem Stand") && t.includes("gerade eben");
+        })(),
+      );
+      // The other half of the caps fix: mapping it to `toolarge` only helps
+      // if that copy asks for something different than `rejected` does.
+      // Pinned as text, because the mapping alone would look correct while
+      // both lines said "reload".
+      check(
+        "copy: too large asks to thin out, never to reload",
+        (() => {
+          const t = T({ state: "error", error: "toolarge", lastSyncAt: 0 }, NOW);
+          return t.includes("ausdünnen") && !t.includes("neu laden");
         })(),
       );
     }

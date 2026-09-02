@@ -103,7 +103,7 @@ func cmdDoctor(args []string) error {
 		check(plan.PlanID == c.cfg.PlanID, "state planId matches config", "the state file belongs to another plan")
 		if cerr := plan.CheckCaps(); cerr != nil {
 			fails++
-			fmt.Printf("  FAIL  state within caps — %v (prune history)\n", cerr)
+			fmt.Printf("  FAIL  state within caps — %v (no pruning exists yet; see docs/todo-cutover.md)\n", cerr)
 		} else {
 			fmt.Printf("  ok    state within caps (events %d/%d)\n", len(plan.Events), wire.MaxEvents)
 		}

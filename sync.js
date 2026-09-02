@@ -46,12 +46,22 @@
   // test seams
   let _fetch = (url, opts) => fetch(url, opts);
   let _now = () => Date.now();
+  // The debounce is real wall-clock time, so the per-plan timer guarantee
+  // would cost 1.5 s per assertion to observe. Same shape as _setNow.
+  let _debounceMs = DEBOUNCE_MS;
 
-  let state = "off";
-  let errorKind = "";
-  let errorReason = "";
+  // VOLATILE per-plan state — the durable half lives in localStorage via
+  // loadSt/saveSt. These were module globals, which meant two connected plans
+  // shared one: plan A's failure was reported as plan B's, and markDirty(B)
+  // cleared A's pending push outright (one timer for everything), losing that
+  // change until the next boot/visibility/online trigger. Maps, not object
+  // literals — invariant 8, a plan id must never reach a prototype.
+  const liveState = new Map(); // planId → {state, errorKind, errorReason}
+  const debounceTimers = new Map(); // planId → timer handle
+  // `running` stays GLOBAL on purpose: one lock across all plans keeps a
+  // multi-plan device from starting a network storm, and whatever it skips
+  // heals at the next trigger.
   let running = false;
-  let debounceTimer = 0;
   let lastVisibilityTick = 0;
   const keyCache = { encKey: "", key: null };
 
@@ -72,6 +82,18 @@
 
   function saveSt(planId, rec) {
     H().safeLocalStorageSetItem(S().K.dropstate(planId), JSON.stringify(rec));
+  }
+
+  // The live record for one plan, created on first use. "idle" is the right
+  // starting point for a CONNECTED plan that has not ticked yet: `off` is the
+  // word for "no server at all", and status() already gates on connected().
+  function liveOf(planId) {
+    let l = liveState.get(planId);
+    if (!l) {
+      l = { state: "idle", errorKind: "", errorReason: "" };
+      liveState.set(planId, l);
+    }
+    return l;
   }
 
   function activePlanId() {
@@ -265,20 +287,20 @@
     if (!planId) return status(planId);
     const creds = D().getCreds(planId);
     if (!creds) {
-      state = "off";
-      errorKind = "";
+      liveState.delete(planId);
       return status(planId);
     }
     if (running) return status(planId);
     running = true;
     const rec = loadSt(planId);
+    const L = liveOf(planId);
     try {
-      state = "pulling";
-      errorKind = "";
-      errorReason = "";
+      L.state = "pulling";
+      L.errorKind = "";
+      L.errorReason = "";
       let pulled = await pull(creds, rec);
       for (let attempt = 0; rec.dirty; attempt++) {
-        state = "pushing";
+        L.state = "pushing";
         try {
           const res = await push(creds, rec, pulled.rev);
           // A replay answer belongs to an earlier attempt whose response was
@@ -289,15 +311,15 @@
           // ours) and push again. Bounded — a persistent conflict surfaces.
           if (e.kind !== "conflict" || attempt >= PUSH_RETRIES) throw e;
         }
-        state = "pulling";
+        L.state = "pulling";
         pulled = await pull(creds, rec);
       }
-      state = rec.dirty ? "queued" : "idle";
+      L.state = rec.dirty ? "queued" : "idle";
     } catch (e) {
-      errorKind = (e && e.kind) || "net";
-      errorReason = (e && e.reason) || "";
+      L.errorKind = (e && e.kind) || "net";
+      L.errorReason = (e && e.reason) || "";
       // offline with something to say = queued, not broken
-      state = errorKind === "net" && rec.dirty ? "queued" : "error";
+      L.state = L.errorKind === "net" && rec.dirty ? "queued" : "error";
     } finally {
       saveSt(planId, rec);
       running = false;
@@ -347,8 +369,16 @@
     rec.dirty = true;
     rec.dirtySince = _now();
     saveSt(id, rec);
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => tick("mutation", { planId: id }), DEBOUNCE_MS);
+    // Per plan: a shared timer meant markDirty(B) cancelled A's pending push
+    // and A's change sat until some other trigger came along.
+    clearTimeout(debounceTimers.get(id));
+    debounceTimers.set(
+      id,
+      setTimeout(() => {
+        debounceTimers.delete(id);
+        tick("mutation", { planId: id });
+      }, _debounceMs),
+    );
   }
 
   function connected(planId) {
@@ -359,12 +389,15 @@
   function status(planId) {
     const id = planId || activePlanId();
     const rec = id ? loadSt(id) : null;
+    // Read, never create: asking about a plan must not allocate a record for
+    // it. An unconnected or unknown plan reports "off" and no error.
+    const L = (id && liveState.get(id)) || null;
     return {
-      state: connected(id) ? state : "off",
-      error: errorKind,
+      state: connected(id) ? (L ? L.state : "idle") : "off",
+      error: L ? L.errorKind : "",
       // the server's own word for a `rejected` push (events-dropped, …) —
       // for the console and the self-check, the UI copy stays one line
-      reason: errorReason,
+      reason: L ? L.errorReason : "",
       dirty: !!(rec && rec.dirty),
       pending: !!(rec && rec.pendingNonce),
       lastRev: rec ? rec.lastRev : 0,
@@ -391,9 +424,12 @@
   function disconnect(planId) {
     const id = planId || activePlanId();
     if (id) D().disconnect(id);
-    state = "off";
-    errorKind = "";
-    errorReason = "";
+    // Only this plan's entry — another connected plan keeps its own state.
+    if (id) {
+      liveState.delete(id);
+      clearTimeout(debounceTimers.get(id));
+      debounceTimers.delete(id);
+    }
     if (typeof PZ.sync.onChanged === "function") PZ.sync.onChanged(status(id));
   }
 
@@ -431,15 +467,17 @@
     _setNow(fn) {
       _now = fn || (() => Date.now());
     },
+    _setDebounceMs(ms) {
+      _debounceMs = ms > 0 ? ms : DEBOUNCE_MS;
+    },
     _reset() {
-      state = "off";
-      errorKind = "";
-      errorReason = "";
+      liveState.clear();
+      _debounceMs = DEBOUNCE_MS;
       running = false;
       // A pending markDirty debounce would otherwise fire AFTER the fetch seam
       // is restored and tick a test plan against the real network.
-      clearTimeout(debounceTimer);
-      debounceTimer = 0;
+      for (const t of debounceTimers.values()) clearTimeout(t);
+      debounceTimers.clear();
       keyCache.encKey = "";
       keyCache.key = null;
     },

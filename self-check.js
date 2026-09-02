@@ -512,6 +512,9 @@
         H().safeLocalStorageRemoveItem(S().K.backup(DP)); // importPlan writes it
         H().safeLocalStorageRemoveItem(S().K.drop(DP));
         H().safeLocalStorageRemoveItem(S().K.dropstate(DP));
+        H().safeLocalStorageRemoveItem(S().K.plan("SELFDRP1"));
+        H().safeLocalStorageRemoveItem(S().K.drop("SELFDRP1"));
+        H().safeLocalStorageRemoveItem(S().K.dropstate("SELFDRP1"));
       };
       dropCleanup();
       const planIndexBefore = H().safeLocalStorageGetItem(S().K.plans);
@@ -543,6 +546,10 @@
           token: "t".repeat(22),
           encKey,
         };
+        // A second, independently connected plan. Everything volatile in
+        // sync.js used to be one module global shared by both.
+        const DP2 = "SELFDRP1";
+        const creds2 = Object.assign({}, creds, { planId: DP2, token: "u".repeat(22) });
         const frag = (prefix, arr) =>
           prefix + H().base64UrlEncodeBytes(H().utf8Encode(JSON.stringify(arr)));
 
@@ -697,6 +704,10 @@
           checkinBody: { minted: true, rev: 6 },
           netFail: false,
           fetchOpts: [],
+          // second plan
+          puts2: [],
+          put2Status: 200,
+          state2Status: 200,
         };
         const reply = (status, body) => ({
           ok: status >= 200 && status < 300,
@@ -707,6 +718,18 @@
         PZ.sync._setFetch(async (url, opts) => {
           env.fetchOpts.push({ url, opts });
           if (env.netFail) throw new TypeError("offline");
+          // A SECOND connected plan — the two-plan section at the end of this
+          // block drives it. Its answers are configured separately so one
+          // plan can fail while the other stays healthy.
+          if (url === PZ.drop.stateUrl(creds2)) {
+            if (opts && opts.method === "PUT") {
+              env.puts2.push(JSON.parse(opts.body));
+              if (env.put2Status !== 200) return reply(env.put2Status, { error: "auth" });
+              return reply(200, { rev: 2, at: "", replay: false, changed: true, counts: {} });
+            }
+            if (env.state2Status !== 200) return reply(env.state2Status, { error: "auth" });
+            return reply(404, { error: "no-state" });
+          }
           if (url === PZ.drop.stateUrl(creds)) {
             if (opts && opts.method === "PUT") {
               env.puts.push(JSON.parse(opts.body));
@@ -1049,6 +1072,93 @@
         env.checkinStatus = 401;
         await throws("checkin 401 → authfail", () => PZ.sync.checkinDispatch(parsedK2, "da2k"));
         env.checkinStatus = 200;
+
+        // --- TWO connected plans. Every volatile field in sync.js used to be
+        // a module global, so plan A's failure was reported as plan B's, and
+        // markDirty(B) cancelled A's pending push outright. Both need two
+        // plans to show at all, which is why nothing caught them before. ---
+        PZ.sync._reset();
+        env.puts.length = 0;
+        env.puts2.length = 0;
+        env.putStatus = 200;
+        env.putError = "";
+        env.stateStatus = 200;
+        S().savePlan(mkPlan({ planId: DP2, areas: [mkArea("db01", "Bad", 7)] }));
+        PZ.drop.acceptCredentials(creds2);
+
+        // B syncs cleanly, then A fails with a cause of its own.
+        let stB = await PZ.sync.tick("two-plan-b", { planId: DP2 });
+        env.stateStatus = 401;
+        const stA = await PZ.sync.tick("two-plan-a", { planId: DP });
+        stB = PZ.sync.status(DP2);
+        check(
+          "one plan's failure is not reported as another's",
+          stA.state === "error" && stA.error === "authfail" && stB.state === "idle" && stB.error === "",
+        );
+        // …and the healthy plan's own error field stays empty even after a
+        // second failing tick on A (the old code overwrote one shared field).
+        env.putError = "events-dropped";
+        env.stateStatus = 200;
+        env.putStatus = 422;
+        PZ.sync.markDirty(DP);
+        await PZ.sync.tick("two-plan-a2", { planId: DP });
+        check(
+          "a rejection reason belongs to the plan that earned it",
+          PZ.sync.status(DP).reason === "events-dropped" && PZ.sync.status(DP2).reason === "",
+        );
+
+        // The lost push: one debounce timer for all plans meant markDirty(B)
+        // cleared A's pending push, and A's change waited for some unrelated
+        // trigger. Driven through the real timer with the debounce shortened.
+        env.putStatus = 200;
+        env.putError = "";
+        env.puts.length = 0;
+        env.puts2.length = 0;
+        PZ.sync._setDebounceMs(5);
+        PZ.sync.markDirty(DP);
+        PZ.sync.markDirty(DP2);
+        // Wait for the EVENT, not for a fixed slice of wall clock: the timer
+        // fires a full pull+push, whose crypto is measurably slower in a
+        // browser than under Node. A fixed 60 ms passed headless and left a
+        // tick in flight in Chrome, which the global `running` lock then made
+        // the NEXT assertion swallow — the failure looked like two bugs.
+        for (let i = 0; i < 100 && env.puts.length === 0; i++) {
+          await new Promise((r) => setTimeout(r, 20));
+        }
+        check(
+          "markDirty on one plan does not cancel another's pending push",
+          env.puts.length >= 1,
+        );
+        PZ.sync._setDebounceMs(0);
+
+        // disconnect() must clear only its own plan's live state. Put A into
+        // a DISTINGUISHABLE state first — "idle" is what an untracked plan
+        // reports anyway, so asserting against it would pass on a full wipe.
+        env.stateStatus = 401;
+        // Retried, for the same reason: `running` is one lock across all
+        // plans (deliberately — it stops a network storm on a multi-plan
+        // device), so a tick can legitimately be skipped and heal on the
+        // next one. The assertion is that A REACHES the error state and
+        // keeps it, not that it does so on the first attempt.
+        // Waits for the EXPECTED cause, not for "some error": A is already in
+        // error/rejected from the assertion above, so a `state !== "error"`
+        // condition would exit before ticking even once.
+        for (let i = 0; i < 50 && PZ.sync.status(DP).error !== "authfail"; i++) {
+          await PZ.sync.tick("two-plan-a3", { planId: DP });
+          if (PZ.sync.status(DP).error !== "authfail") await new Promise((r) => setTimeout(r, 20));
+        }
+        const beforeDisconnect = PZ.sync.status(DP);
+        PZ.sync.disconnect(DP2);
+        check(
+          "disconnect clears only its own plan",
+          beforeDisconnect.state === "error" &&
+            beforeDisconnect.error === "authfail" &&
+            PZ.sync.status(DP2).state === "off" &&
+            PZ.sync.status(DP).state === "error" &&
+            PZ.sync.status(DP).error === "authfail",
+        );
+        env.stateStatus = 200;
+        PZ.drop.disconnect(DP2);
 
         // no creds → off
         PZ.sync._reset();

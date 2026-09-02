@@ -33,3 +33,19 @@ func Load(t *testing.T, path, hint string) []byte {
 	t.Skipf("no %s — run: %s (%v)", path, hint, err)
 	return nil
 }
+
+// RequireField is Load's counterpart for a fixture that exists but PREDATES
+// the field a test needs — an older golden.json, regenerated before that key
+// was added. Load only guards the file, so without this a stale fixture
+// silently skips even under RequireEnv, and a skipped parity test proves
+// nothing. Same two-tier rule: skip locally, fail in the gate.
+func RequireField(t *testing.T, present bool, field, hint string) {
+	t.Helper()
+	if present {
+		return
+	}
+	if os.Getenv(RequireEnv) != "" {
+		t.Fatalf("golden has no %s with %s set — regenerate: %s", field, RequireEnv, hint)
+	}
+	t.Skipf("golden has no %s — regenerate: %s", field, hint)
+}

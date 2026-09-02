@@ -29,10 +29,11 @@
   const DEBOUNCE_MS = 1500;
   const VISIBILITY_MIN_MS = 30000;
   const STALE_HINT_AFTER = 3;
-  // Matches the server's payload cap. The client never shrinks to fit: the
-  // server overwrites rather than merges, so a truncated push would erase
-  // history — it refuses one, and so do we, loudly.
-  const PUSH_BUDGET_CHARS = 64 * 1024;
+  // The caps live in share.js (SERVER_CAPS) — one copy, pinned against Go
+  // through the golden file. Read LAZILY at the callsite, per the module
+  // convention: a module-scope `const … = PZ.share…` would make a second load
+  // order load-bearing.
+  const CAPS = () => PZ.share.SERVER_CAPS;
   // The only two failures a plain retry can still change: `conflict` is
   // resolved by the very next tick (pull, mergePlans, push) and `net` is what
   // the queue exists for. A Set, not an object literal — invariant 8.
@@ -166,8 +167,20 @@
       rec.dirty = false; // nothing local to send — never spin on this
       return { rev: baseRev, replay: false };
     }
+    // Counts first: the server refuses these with `caps` anyway, so asking
+    // costs a round-trip for an answer we already have. The client never
+    // shrinks to fit — the server overwrites rather than merges, so a
+    // truncated push would erase history (invariant 13). Both sides refuse.
+    const caps = CAPS();
+    if (
+      plan.events.length > caps.maxEvents ||
+      plan.areas.length > caps.maxAreas ||
+      plan.people.length > caps.maxPeople ||
+      (plan.weeks || []).length > caps.maxWeeks
+    )
+      throw fail("toolarge");
     const payload = await PZ.share.encodeStatePayload(plan);
-    if (payload.length > PUSH_BUDGET_CHARS) throw fail("toolarge");
+    if (payload.length > caps.maxPayloadChars) throw fail("toolarge");
     const nonce = rec.pendingNonce || H().randomId(8);
     rec.pendingNonce = nonce;
     const pushedAt = _now();
@@ -396,7 +409,11 @@
   }
 
   PZ.sync = {
-    PUSH_BUDGET_CHARS,
+    // Kept as a getter so existing callers keep working while the value has
+    // exactly one home.
+    get PUSH_BUDGET_CHARS() {
+      return CAPS().maxPayloadChars;
+    },
     tick,
     checkinDispatch,
     importPlan,

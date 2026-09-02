@@ -4,6 +4,8 @@ package wire
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/bmmmm/putzii/server/internal/golden"
 )
 
 func planWith(areas, people, events, weeks int) *Plan {
@@ -54,11 +56,33 @@ func TestCapsBoundaries(t *testing.T) {
 // If they ever drift, one side could silently strip the other's slots.
 func TestKnownSlotsMatchesApp(t *testing.T) {
 	g := loadGolden(t)
-	if g.KnownSlots == 0 {
-		t.Skip("golden has no knownSlots — regenerate it")
-	}
+	golden.RequireField(t, g.KnownSlots != 0, "knownSlots", regenHint)
 	if got := KnownSlots(); got != g.KnownSlots {
 		t.Fatalf("KnownSlots() = %d, app emits %d — the Go codec is out of step", got, g.KnownSlots)
+	}
+}
+
+// The caps exist twice — here and as SERVER_CAPS in share.js, which the app
+// checks BEFORE pushing so "too big" needs no round-trip. Two hand-kept
+// copies drift, and the drift surfaces as a 422 nobody can explain: the app
+// happily sends what the server refuses, or refuses locally what the server
+// would have taken. Pinned per value, so the failure names which one moved.
+func TestServerCapsMatchApp(t *testing.T) {
+	g := loadGolden(t)
+	golden.RequireField(t, g.ServerCaps != nil, "serverCaps", regenHint)
+	for _, c := range []struct {
+		name     string
+		go_, app int
+	}{
+		{"maxPayloadChars", MaxPayloadChars, g.ServerCaps.MaxPayloadChars},
+		{"maxEvents", MaxEvents, g.ServerCaps.MaxEvents},
+		{"maxAreas", MaxAreas, g.ServerCaps.MaxAreas},
+		{"maxPeople", MaxPeople, g.ServerCaps.MaxPeople},
+		{"maxWeeks", MaxWeeks, g.ServerCaps.MaxWeeks},
+	} {
+		if c.go_ != c.app {
+			t.Errorf("%s: Go %d, app %d — the two copies drifted", c.name, c.go_, c.app)
+		}
 	}
 }
 

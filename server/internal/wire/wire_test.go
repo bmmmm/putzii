@@ -19,12 +19,27 @@ type goldenFile struct {
 	FileExport    json.RawMessage `json:"fileExport"`
 	KnownSlots    int             `json:"knownSlots"`
 	StatePayload  string          `json:"statePayload"`
+	ServerCaps    *appCaps        `json:"serverCaps"`
 }
+
+// appCaps is share.js's SERVER_CAPS — the app's copy of the thresholds this
+// package defines. A pointer in goldenFile so "absent" is distinguishable
+// from "all zero" and cannot pass as agreement.
+type appCaps struct {
+	MaxPayloadChars int `json:"maxPayloadChars"`
+	MaxEvents       int `json:"maxEvents"`
+	MaxAreas        int `json:"maxAreas"`
+	MaxPeople       int `json:"maxPeople"`
+	MaxWeeks        int `json:"maxWeeks"`
+}
+
+// regenHint is the one command that rebuilds this fixture — printed by every
+// skip and failure so the fix is a copy-paste away.
+const regenHint = "node tools/gen-golden.mjs internal/wire/testdata/golden.json .."
 
 func loadGolden(t *testing.T) *goldenFile {
 	t.Helper()
-	raw := golden.Load(t, filepath.Join("testdata", "golden.json"),
-		"node tools/gen-golden.mjs internal/wire/testdata/golden.json ..")
+	raw := golden.Load(t, filepath.Join("testdata", "golden.json"), regenHint)
 	var g goldenFile
 	if err := json.Unmarshal(raw, &g); err != nil {
 		t.Fatalf("parse golden: %v", err)

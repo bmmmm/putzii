@@ -752,7 +752,12 @@
         );
         // The push is UNCAPPED: overwrite semantics make a shrunk payload a
         // data-loss bug, so the budget is a refusal threshold, not a target.
-        check("push budget matches the server cap", PZ.sync.PUSH_BUDGET_CHARS === 64 * 1024);
+        // The value itself has ONE home (share.js SERVER_CAPS, pinned against
+        // Go); asserting a literal here would just add a third copy.
+        check(
+          "push budget reads the single capped source",
+          PZ.sync.PUSH_BUDGET_CHARS === PZ.share.SERVER_CAPS.maxPayloadChars,
+        );
 
         // 409 → pull (which merges the other side in), push again. Converges
         // inside ONE tick: mergePlans lives on the client, so the server never
@@ -970,6 +975,33 @@
           "the retry reuses that nonce, and success clears it",
           env.puts.length === 1 && env.puts[0].nonce === queuedNonce && st.pending === false,
         );
+
+        // A plan already over a COUNT cap never asks: the server would refuse
+        // it with exactly this answer (`caps` → 422), so the round-trip buys
+        // nothing. Proven by the absence of a PUT, not by the status alone.
+        // Placed after the queue checks on purpose — it deliberately leaves a
+        // dirty, unsendable plan behind, and the state machine is restored by
+        // savePlan + the _reset() below rather than by the next check.
+        env.puts.length = 0;
+        const capsSafe = S().loadPlan(DP);
+        const capsOver = JSON.parse(JSON.stringify(capsSafe));
+        const overBy = PZ.share.SERVER_CAPS.maxEvents + 1 - capsOver.events.length;
+        for (let i = 0; i < overBy; i++) {
+          capsOver.events.push({
+            id: `capsdev.${i.toString(36)}`,
+            areaId: "da01",
+            personId: "dp01",
+            ts: 1787047500000,
+          });
+        }
+        S().savePlan(capsOver);
+        PZ.sync.markDirty(DP);
+        st = await PZ.sync.tick("test-caps-local", { planId: DP });
+        check(
+          "a plan over the event cap is refused without a round-trip",
+          st.state === "error" && st.error === "toolarge" && env.puts.length === 0 && st.dirty === true,
+        );
+        S().savePlan(capsSafe);
 
         // k2 confirm flow: one-shot check-in, confirmed by the RESPONSE — no
         // local plan involved, the stub records the exact wire body.

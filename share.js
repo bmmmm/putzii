@@ -23,7 +23,25 @@
   // the week that just ended) through current+SHARE_WEEK_HORIZON = 26 records,
   // measured at +347…+404 chars — no adaptive shrinking needed normally.
   const SHARE_WEEK_HORIZON = 24;
-  const WIRE_MAX_WEEKS = 400;
+  // The server's refusal thresholds, mirrored here so the app can say "too
+  // big" without a round-trip. These are NOT targets to shrink to: the server
+  // overwrites rather than merges (invariant 13), so a truncated push would
+  // erase history — both sides refuse instead.
+  //
+  // Every value is pinned against server/internal/wire/wire.go through the
+  // golden file (TestServerCapsMatchApp), the same way knownSlots is. Hand-
+  // copied constants without a pin are exactly the drift invariant 14 exists
+  // to catch. This lives in share.js and not sync.js because the golden
+  // generator loads helpers/model/share only — sync.js needs localStorage and
+  // location and is unreachable there.
+  const SERVER_CAPS = Object.freeze({
+    maxPayloadChars: 64 * 1024,
+    maxEvents: 500,
+    maxAreas: 200,
+    maxPeople: 200,
+    maxWeeks: 400,
+  });
+  const WIRE_MAX_WEEKS = SERVER_CAPS.maxWeeks;
   const WIRE_MAX_DAY_SLOTS = 20;
   const MIN_EVENT_TS = Date.UTC(2020, 0, 1);
   const MAX_FUTURE_MS = 30 * 86400000;
@@ -446,6 +464,7 @@
     URL_BUDGET_AMBER,
     SHARE_EVENT_CAP,
     SHARE_WEEK_HORIZON,
+    SERVER_CAPS,
     baseDirUrl,
     checkinUrl,
     selectShareEvents,

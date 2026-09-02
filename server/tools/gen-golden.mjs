@@ -65,6 +65,10 @@ fs.writeFileSync(
       // How many slots the APP emits today. The Go side must agree, or a
       // silent slot-strip becomes possible in one direction.
       knownSlots: canonicalWire.length,
+      // The refusal thresholds the app mirrors from the server. Pinned for
+      // the same reason as knownSlots: two hand-kept copies drift, and the
+      // drift only shows up as a 422 nobody can explain.
+      serverCaps: PZ.share.SERVER_CAPS,
       // The exact bytes sync.js PUTs: b64url(gzip(wire)). Pinning it makes
       // the Go decoder test the real production path end to end, not a
       // Go-built lookalike.

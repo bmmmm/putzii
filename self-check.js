@@ -1042,6 +1042,16 @@
         "copy: the last sync is a relative time",
         T({ state: "idle", lastSyncAt: NOW - 3 * 3600000 }, NOW).includes("Zuletzt synchronisiert: vor 3 Std."),
       );
+      // Both found by the browser cross-check, not by the headless run.
+      check(
+        "copy: an abbreviated time does not double the period",
+        !T({ state: "idle", dirty: false, lastSyncAt: NOW - 5 * 60000 }, NOW).includes(".."),
+      );
+      check(
+        "copy: never synced does not also claim ✓ synchron",
+        T({ state: "idle", dirty: false, lastSyncAt: 0 }, NOW) ===
+          "Server verbunden. Noch nie synchronisiert.",
+      );
       check(
         "copy: without a server there is no sync time",
         !T({ state: "off", lastSyncAt: 0 }, NOW).includes("synchronisiert"),

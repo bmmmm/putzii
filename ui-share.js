@@ -288,8 +288,13 @@
       text = "Änderungen werden nachgeholt, sobald der Server erreichbar ist.";
     } else if (st.state === "pulling" || st.state === "pushing") {
       text = "Synchronisiere…";
+    } else if (st.dirty) {
+      text = "Server verbunden — lokale Änderungen ausstehend.";
     } else {
-      text = st.dirty ? "Server verbunden — lokale Änderungen ausstehend." : "Server ✓ synchron.";
+      // "✓ synchron" is a claim about a completed exchange. Before the first
+      // one there is nothing to claim — otherwise the line read "Server ✓
+      // synchron. Noch nie synchronisiert." and contradicted itself.
+      text = st.lastSyncAt ? "Server ✓ synchron." : "Server verbunden.";
     }
     if (st.stale) text += " Server antwortet mit altem Stand.";
     // When the server last had this device's state — the one number that
@@ -297,9 +302,13 @@
     // `pending` deliberately stays out: it is retry mechanics, not a cause
     // anybody can act on.
     if (st.state !== "off") {
-      text += st.lastSyncAt
-        ? ` Zuletzt synchronisiert: ${H().formatRelPast(st.lastSyncAt, nowMs)}.`
-        : " Noch nie synchronisiert.";
+      if (!st.lastSyncAt) text += " Noch nie synchronisiert.";
+      else {
+        // formatRelPast ends its abbreviated forms in a period already
+        // ("vor 5 Min."), so a blind one gives "vor 5 Min..".
+        const rel = H().formatRelPast(st.lastSyncAt, nowMs);
+        text += ` Zuletzt synchronisiert: ${rel}${rel.endsWith(".") ? "" : "."}`;
+      }
     }
     return text;
   }

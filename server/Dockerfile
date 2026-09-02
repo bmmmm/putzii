@@ -3,7 +3,7 @@
 # AND the PWA it serves, and those live side by side.
 #   docker build -f server/Dockerfile -t putzii-server .
 
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 # The build context has no .git, so the binary cannot read its own commit:
 # the caller stamps it. CI passes the SHA; docker-compose passes
 # $PUTZII_VERSION. `putzii-server version` and the serve log echo it back.

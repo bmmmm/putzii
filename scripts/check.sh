@@ -7,7 +7,8 @@
 # Usage:
 #   scripts/check.sh                 # gofmt, vet, parity fixtures, go test
 #                                    # (Berlin, UTC), Go→Node vectors, build,
-#                                    # self-check (Berlin, UTC), sw-version
+#                                    # self-check (Berlin, UTC, each also
+#                                    # with a seeded active plan), sw-version
 #   scripts/check.sh --base <ref>    # sw-version against <ref>..HEAD instead
 #                                    # of the staging area
 #   scripts/check.sh --docker        # …plus the image build + version stamp
@@ -75,6 +76,15 @@ TZ=Europe/Berlin node server/tools/selfcheck.mjs .
 step "app self-check (UTC)"
 TZ=UTC tz_line
 TZ=UTC node server/tools/selfcheck.mjs .
+
+# Same suite, but with a real active plan seeded first: the runner then also
+# asserts that the device's own plan came back untouched. The unseeded runs
+# above stay — only they exercise the empty-store branch of the sync section.
+step "app self-check with a seeded active plan (Europe/Berlin)"
+PUTZII_SEED_ACTIVE=1 TZ=Europe/Berlin node server/tools/selfcheck.mjs .
+
+step "app self-check with a seeded active plan (UTC)"
+PUTZII_SEED_ACTIVE=1 TZ=UTC node server/tools/selfcheck.mjs .
 
 if [ -n "$base" ]; then
   step "service worker version ($base..HEAD)"

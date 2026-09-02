@@ -495,496 +495,508 @@
       const onChangedBefore = PZ.sync.onChanged;
       // A live UI handler must not be fed this suite's plan states.
       PZ.sync.onChanged = null;
+      // Everything below runs inside try/finally: `importPlan` ACTIVATES the
+      // plan it merges, so between here and the restore the device's active
+      // plan is this suite's stand-in. A throw in between must not leave a
+      // real device booting into SELFDRP0 — the finally puts the index back
+      // whatever happens.
+      //
       // Every sync call below names DP explicitly, so a silent fallback to the
       // ACTIVE plan must report the wrong record. On a device that already has
       // a plan that is reality; on an empty store we pin a stand-in so the
-      // guarantee is tested there too. The user's own active plan is never
-      // touched — losing it to a mid-suite throw is not worth the coverage.
-      if (!S().loadPlanIndex().active) {
-        S().savePlanIndex({ active: FOREIGN, ids: [FOREIGN] });
-      }
+      // guarantee is tested there too.
+      try {
+        if (!S().loadPlanIndex().active) {
+          S().savePlanIndex({ active: FOREIGN, ids: [FOREIGN] });
+        }
 
-      const keyBytes = new Uint8Array(32).map((_, i) => (i * 13 + 7) & 255);
-      const encKey = H().base64UrlEncodeBytes(keyBytes);
-      const creds = {
-        v: 2,
-        planId: DP,
-        personId: "scp1",
-        personName: "Testy",
-        token: "t".repeat(22),
-        encKey,
-      };
-      const frag = (prefix, arr) =>
-        prefix + H().base64UrlEncodeBytes(H().utf8Encode(JSON.stringify(arr)));
+        const keyBytes = new Uint8Array(32).map((_, i) => (i * 13 + 7) & 255);
+        const encKey = H().base64UrlEncodeBytes(keyBytes);
+        const creds = {
+          v: 2,
+          planId: DP,
+          personId: "scp1",
+          personName: "Testy",
+          token: "t".repeat(22),
+          encKey,
+        };
+        const frag = (prefix, arr) =>
+          prefix + H().base64UrlEncodeBytes(H().utf8Encode(JSON.stringify(arr)));
 
-      // d2 link round-trip + junk
-      const parsedCreds = PZ.drop.parseCredentialFragment(
-        frag("d2.", [2, DP, "scp1", "Testy", creds.token, encKey]),
-      );
-      check("d2 roundtrip", parsedCreds && deepEqual(parsedCreds, creds));
-      check(
-        "d2 junk rejected",
-        PZ.drop.parseCredentialFragment("d2.!!!") === null &&
-          PZ.drop.parseCredentialFragment(frag("d2.", [3, DP, "scp1", "T", "t", encKey])) === null &&
-          PZ.drop.parseCredentialFragment(frag("d2.", [2, DP, "scp1", "T", "t"])) === null &&
-          PZ.drop.parseCredentialFragment("p1.abc") === null,
-      );
-      // A v1 link must be recognisable as OLD, not merely unparsable.
-      check(
-        "legacy links detected, never parsed",
-        PZ.drop.isLegacyFragment("d1.abc") &&
-          PZ.drop.isLegacyFragment("k1.abc") &&
-          !PZ.drop.isLegacyFragment("d2.abc") &&
-          PZ.drop.parseCredentialFragment("d1.abc") === null &&
-          PZ.drop.parseCheckinFragment("k1.abc") === null,
-      );
-
-      // k2 confirm link: round-trip (no encKey travels), label fallback, junk
-      const parsedK2 = PZ.drop.parseCheckinFragment(
-        frag("k2.", [2, DP, "scp1", "Testy", "c".repeat(22), [["da2k", "Küche"], ["db3m", ""]]]),
-      );
-      check(
-        "k2 roundtrip",
-        parsedK2 &&
-          parsedK2.planId === DP &&
-          parsedK2.personId === "scp1" &&
-          parsedK2.personName === "Testy" &&
-          parsedK2.token === "c".repeat(22) &&
-          parsedK2.encKey === undefined &&
-          deepEqual(parsedK2.areas, [
-            { areaId: "da2k", label: "Küche" },
-            { areaId: "db3m", label: "db3m" },
-          ]),
-      );
-      // The confirm link must not be able to carry read access at all: there
-      // is no slot for a key, and the token in it is a different secret.
-      check("k2 carries no key", !JSON.stringify(parsedK2).includes(encKey.slice(0, 16)));
-      const k2With = (areas) =>
-        PZ.drop.parseCheckinFragment(frag("k2.", [2, DP, "scp1", "T", "c".repeat(22), areas]));
-      check(
-        "k2 junk rejected",
-        PZ.drop.parseCheckinFragment("k2.!!!") === null &&
-          PZ.drop.parseCheckinFragment("d2.abc") === null &&
-          k2With([]) === null &&
-          k2With([["DA_01!", "x"]]) === null &&
-          k2With(Array.from({ length: 13 }, () => ["da2k", "x"])) === null,
-      );
-
-      // credential storage + disconnect cleanup
-      check("creds store roundtrip", PZ.drop.acceptCredentials(creds) && deepEqual(Object.assign({}, PZ.drop.getCreds(DP), { addedAt: 0 }), Object.assign({}, creds, { addedAt: 0 })));
-      PZ.drop.disconnect(DP);
-      check("disconnect cleans up", PZ.drop.getCreds(DP) === null && H().safeLocalStorageGetItem(S().K.dropstate(DP)) === null);
-      PZ.drop.acceptCredentials(creds);
-
-      // API URLs are DERIVED from the serving origin — never from the link.
-      // That is what keeps CSP at connect-src 'self'.
-      check(
-        "api urls stay same-origin",
-        PZ.drop.stateUrl(creds).startsWith(PZ.share.baseDirUrl() + "api/") &&
-          PZ.drop.stateUrl(creds).endsWith("/state/" + DP) &&
-          PZ.drop.healthUrl(creds).endsWith("/health/" + DP) &&
-          PZ.drop.checkinUrl().endsWith("/api/checkin"),
-      );
-
-      // dropcrypto: roundtrip, tamper, AAD binding
-      const stateKey = await PZ.dropcrypto.importStateKey(keyBytes);
-      const plainMsg = H().utf8Encode("drop state bytes");
-      const encd = await PZ.dropcrypto.encryptState(stateKey, DP, plainMsg);
-      check(
-        "dropcrypto roundtrip",
-        H().utf8Decode(await PZ.dropcrypto.decryptState(stateKey, DP, encd.iv, encd.ct)) === "drop state bytes",
-      );
-      const tampered = encd.ct.slice();
-      tampered[0] ^= 1;
-      await throws("dropcrypto tamper throws", () => PZ.dropcrypto.decryptState(stateKey, DP, encd.iv, tampered));
-      await throws("dropcrypto AAD binds planId", () => PZ.dropcrypto.decryptState(stateKey, "OTHER", encd.iv, encd.ct));
-      const stateText = JSON.stringify({
-        v: 1,
-        alg: "A256GCM",
-        iv: H().base64UrlEncodeBytes(encd.iv),
-        ct: H().base64UrlEncodeBytes(encd.ct),
-        rev: 4,
-        at: "2026-08-20T12:00:00.000Z",
-      });
-      const parsedState = PZ.dropcrypto.parseStateFile(stateText);
-      check("statefile roundtrip", parsedState && parsedState.rev === 4 && parsedState.ct.length === encd.ct.length);
-      check("statefile rejects junk", PZ.dropcrypto.parseStateFile("{}") === null && PZ.dropcrypto.parseStateFile("x") === null);
-
-      // uncapped state payload: 300 events (> SHARE_EVENT_CAP) survive
-      const bigDropPlan = mkPlan({
-        planId: DP,
-        areas: [mkArea("da01", "Küche", 7)],
-        people: [mkPerson("dp01", "Testy")],
-        events: Array.from({ length: 300 }, (_, i) => mkEvent(`dd.${(i + 1).toString(36)}`, "da01", "dp01", 29785000 + i)),
-      });
-      const payloadB64 = await PZ.share.encodeStatePayload(bigDropPlan);
-      const payloadPlan = await PZ.share.decodeStatePayload(H().base64UrlDecodeBytes(payloadB64));
-      check("state payload uncapped", payloadPlan.events.length === 300);
-
-      // fitPayload: tiny budget shrinks but per-area anchors survive
-      const fitted = await PZ.share.fitPayload(bigDropPlan, 500, (cap, weeks) =>
-        PZ.share.encodeStatePayload(bigDropPlan, cap, weeks),
-      );
-      check("fitPayload shrinks with anchors", fitted.sharedEvents >= 1 && fitted.sharedEvents < 300);
-
-      // --- sync state machine against a fetch stub ---
-      let fakeNow = 1787136000000;
-      PZ.sync._setNow(() => fakeNow);
-      const remoteEvent = mkEvent("gdrop.1", "da01", "dp01", 29785500);
-      const remotePlan = mkPlan({
-        planId: DP,
-        areas: [mkArea("da01", "Küche", 7)],
-        people: [mkPerson("dp01", "Testy")],
-        events: [remoteEvent],
-      });
-      async function makeStateBody(plan, rev, key) {
-        const gz = await H().gzipCompress(
-          H().utf8Encode(JSON.stringify(PZ.share.wireFromPlan(plan, plan.events.length, false))),
+        // d2 link round-trip + junk
+        const parsedCreds = PZ.drop.parseCredentialFragment(
+          frag("d2.", [2, DP, "scp1", "Testy", creds.token, encKey]),
         );
-        const enc = await PZ.dropcrypto.encryptState(key || stateKey, DP, gz);
-        return JSON.stringify({
+        check("d2 roundtrip", parsedCreds && deepEqual(parsedCreds, creds));
+        check(
+          "d2 junk rejected",
+          PZ.drop.parseCredentialFragment("d2.!!!") === null &&
+            PZ.drop.parseCredentialFragment(frag("d2.", [3, DP, "scp1", "T", "t", encKey])) === null &&
+            PZ.drop.parseCredentialFragment(frag("d2.", [2, DP, "scp1", "T", "t"])) === null &&
+            PZ.drop.parseCredentialFragment("p1.abc") === null,
+        );
+        // A v1 link must be recognisable as OLD, not merely unparsable.
+        check(
+          "legacy links detected, never parsed",
+          PZ.drop.isLegacyFragment("d1.abc") &&
+            PZ.drop.isLegacyFragment("k1.abc") &&
+            !PZ.drop.isLegacyFragment("d2.abc") &&
+            PZ.drop.parseCredentialFragment("d1.abc") === null &&
+            PZ.drop.parseCheckinFragment("k1.abc") === null,
+        );
+
+        // k2 confirm link: round-trip (no encKey travels), label fallback, junk
+        const parsedK2 = PZ.drop.parseCheckinFragment(
+          frag("k2.", [2, DP, "scp1", "Testy", "c".repeat(22), [["da2k", "Küche"], ["db3m", ""]]]),
+        );
+        check(
+          "k2 roundtrip",
+          parsedK2 &&
+            parsedK2.planId === DP &&
+            parsedK2.personId === "scp1" &&
+            parsedK2.personName === "Testy" &&
+            parsedK2.token === "c".repeat(22) &&
+            parsedK2.encKey === undefined &&
+            deepEqual(parsedK2.areas, [
+              { areaId: "da2k", label: "Küche" },
+              { areaId: "db3m", label: "db3m" },
+            ]),
+        );
+        // The confirm link must not be able to carry read access at all: there
+        // is no slot for a key, and the token in it is a different secret.
+        check("k2 carries no key", !JSON.stringify(parsedK2).includes(encKey.slice(0, 16)));
+        const k2With = (areas) =>
+          PZ.drop.parseCheckinFragment(frag("k2.", [2, DP, "scp1", "T", "c".repeat(22), areas]));
+        check(
+          "k2 junk rejected",
+          PZ.drop.parseCheckinFragment("k2.!!!") === null &&
+            PZ.drop.parseCheckinFragment("d2.abc") === null &&
+            k2With([]) === null &&
+            k2With([["DA_01!", "x"]]) === null &&
+            k2With(Array.from({ length: 13 }, () => ["da2k", "x"])) === null,
+        );
+
+        // credential storage + disconnect cleanup
+        check("creds store roundtrip", PZ.drop.acceptCredentials(creds) && deepEqual(Object.assign({}, PZ.drop.getCreds(DP), { addedAt: 0 }), Object.assign({}, creds, { addedAt: 0 })));
+        PZ.drop.disconnect(DP);
+        check("disconnect cleans up", PZ.drop.getCreds(DP) === null && H().safeLocalStorageGetItem(S().K.dropstate(DP)) === null);
+        PZ.drop.acceptCredentials(creds);
+
+        // API URLs are DERIVED from the serving origin — never from the link.
+        // That is what keeps CSP at connect-src 'self'.
+        check(
+          "api urls stay same-origin",
+          PZ.drop.stateUrl(creds).startsWith(PZ.share.baseDirUrl() + "api/") &&
+            PZ.drop.stateUrl(creds).endsWith("/state/" + DP) &&
+            PZ.drop.healthUrl(creds).endsWith("/health/" + DP) &&
+            PZ.drop.checkinUrl().endsWith("/api/checkin"),
+        );
+
+        // dropcrypto: roundtrip, tamper, AAD binding
+        const stateKey = await PZ.dropcrypto.importStateKey(keyBytes);
+        const plainMsg = H().utf8Encode("drop state bytes");
+        const encd = await PZ.dropcrypto.encryptState(stateKey, DP, plainMsg);
+        check(
+          "dropcrypto roundtrip",
+          H().utf8Decode(await PZ.dropcrypto.decryptState(stateKey, DP, encd.iv, encd.ct)) === "drop state bytes",
+        );
+        const tampered = encd.ct.slice();
+        tampered[0] ^= 1;
+        await throws("dropcrypto tamper throws", () => PZ.dropcrypto.decryptState(stateKey, DP, encd.iv, tampered));
+        await throws("dropcrypto AAD binds planId", () => PZ.dropcrypto.decryptState(stateKey, "OTHER", encd.iv, encd.ct));
+        const stateText = JSON.stringify({
           v: 1,
           alg: "A256GCM",
-          iv: H().base64UrlEncodeBytes(enc.iv),
-          ct: H().base64UrlEncodeBytes(enc.ct),
-          rev,
+          iv: H().base64UrlEncodeBytes(encd.iv),
+          ct: H().base64UrlEncodeBytes(encd.ct),
+          rev: 4,
           at: "2026-08-20T12:00:00.000Z",
         });
-      }
-      // The stub speaks the SERVER protocol: GET/PUT /api/state, POST
-      // /api/checkin. Writes answer synchronously — there is no tail to poll.
-      const env = {
-        rev: 5,
-        stateBody: await makeStateBody(remotePlan, 5),
-        stateStatus: 200,
-        stateError: "no-state",
-        putStatus: 200,
-        putError: "", // body.error for a non-200 PUT; "auth" when empty
-        conflictsLeft: 0,
-        replaysLeft: 0,
-        puts: [],
-        checkins: [],
-        checkinStatus: 200,
-        checkinBody: { minted: true, rev: 6 },
-        netFail: false,
-        fetchOpts: [],
-      };
-      const reply = (status, body) => ({
-        ok: status >= 200 && status < 300,
-        status,
-        text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
-      });
-      PZ.sync._reset();
-      PZ.sync._setFetch(async (url, opts) => {
-        env.fetchOpts.push({ url, opts });
-        if (env.netFail) throw new TypeError("offline");
-        if (url === PZ.drop.stateUrl(creds)) {
-          if (opts && opts.method === "PUT") {
-            env.puts.push(JSON.parse(opts.body));
-            if (env.conflictsLeft > 0) {
-              env.conflictsLeft--;
-              return reply(409, { error: "conflict", rev: env.rev });
+        const parsedState = PZ.dropcrypto.parseStateFile(stateText);
+        check("statefile roundtrip", parsedState && parsedState.rev === 4 && parsedState.ct.length === encd.ct.length);
+        check("statefile rejects junk", PZ.dropcrypto.parseStateFile("{}") === null && PZ.dropcrypto.parseStateFile("x") === null);
+
+        // uncapped state payload: 300 events (> SHARE_EVENT_CAP) survive
+        const bigDropPlan = mkPlan({
+          planId: DP,
+          areas: [mkArea("da01", "Küche", 7)],
+          people: [mkPerson("dp01", "Testy")],
+          events: Array.from({ length: 300 }, (_, i) => mkEvent(`dd.${(i + 1).toString(36)}`, "da01", "dp01", 29785000 + i)),
+        });
+        const payloadB64 = await PZ.share.encodeStatePayload(bigDropPlan);
+        const payloadPlan = await PZ.share.decodeStatePayload(H().base64UrlDecodeBytes(payloadB64));
+        check("state payload uncapped", payloadPlan.events.length === 300);
+
+        // fitPayload: tiny budget shrinks but per-area anchors survive
+        const fitted = await PZ.share.fitPayload(bigDropPlan, 500, (cap, weeks) =>
+          PZ.share.encodeStatePayload(bigDropPlan, cap, weeks),
+        );
+        check("fitPayload shrinks with anchors", fitted.sharedEvents >= 1 && fitted.sharedEvents < 300);
+
+        // --- sync state machine against a fetch stub ---
+        let fakeNow = 1787136000000;
+        PZ.sync._setNow(() => fakeNow);
+        const remoteEvent = mkEvent("gdrop.1", "da01", "dp01", 29785500);
+        const remotePlan = mkPlan({
+          planId: DP,
+          areas: [mkArea("da01", "Küche", 7)],
+          people: [mkPerson("dp01", "Testy")],
+          events: [remoteEvent],
+        });
+        async function makeStateBody(plan, rev, key) {
+          const gz = await H().gzipCompress(
+            H().utf8Encode(JSON.stringify(PZ.share.wireFromPlan(plan, plan.events.length, false))),
+          );
+          const enc = await PZ.dropcrypto.encryptState(key || stateKey, DP, gz);
+          return JSON.stringify({
+            v: 1,
+            alg: "A256GCM",
+            iv: H().base64UrlEncodeBytes(enc.iv),
+            ct: H().base64UrlEncodeBytes(enc.ct),
+            rev,
+            at: "2026-08-20T12:00:00.000Z",
+          });
+        }
+        // The stub speaks the SERVER protocol: GET/PUT /api/state, POST
+        // /api/checkin. Writes answer synchronously — there is no tail to poll.
+        const env = {
+          rev: 5,
+          stateBody: await makeStateBody(remotePlan, 5),
+          stateStatus: 200,
+          stateError: "no-state",
+          putStatus: 200,
+          putError: "", // body.error for a non-200 PUT; "auth" when empty
+          conflictsLeft: 0,
+          replaysLeft: 0,
+          puts: [],
+          checkins: [],
+          checkinStatus: 200,
+          checkinBody: { minted: true, rev: 6 },
+          netFail: false,
+          fetchOpts: [],
+        };
+        const reply = (status, body) => ({
+          ok: status >= 200 && status < 300,
+          status,
+          text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
+        });
+        PZ.sync._reset();
+        PZ.sync._setFetch(async (url, opts) => {
+          env.fetchOpts.push({ url, opts });
+          if (env.netFail) throw new TypeError("offline");
+          if (url === PZ.drop.stateUrl(creds)) {
+            if (opts && opts.method === "PUT") {
+              env.puts.push(JSON.parse(opts.body));
+              if (env.conflictsLeft > 0) {
+                env.conflictsLeft--;
+                return reply(409, { error: "conflict", rev: env.rev });
+              }
+              if (env.putStatus !== 200) return reply(env.putStatus, { error: env.putError || "auth" });
+              if (env.replaysLeft > 0) {
+                env.replaysLeft--;
+                return reply(200, { rev: env.rev, at: "", replay: true, changed: false, counts: {} });
+              }
+              env.rev++;
+              return reply(200, { rev: env.rev, at: "", replay: false, changed: true, counts: {} });
             }
-            if (env.putStatus !== 200) return reply(env.putStatus, { error: env.putError || "auth" });
-            if (env.replaysLeft > 0) {
-              env.replaysLeft--;
-              return reply(200, { rev: env.rev, at: "", replay: true, changed: false, counts: {} });
-            }
-            env.rev++;
-            return reply(200, { rev: env.rev, at: "", replay: false, changed: true, counts: {} });
+            if (env.stateStatus === 404) return reply(404, { error: env.stateError });
+            if (env.stateStatus !== 200) return reply(env.stateStatus, { error: "auth" });
+            return reply(200, env.stateBody);
           }
-          if (env.stateStatus === 404) return reply(404, { error: env.stateError });
-          if (env.stateStatus !== 200) return reply(env.stateStatus, { error: "auth" });
-          return reply(200, env.stateBody);
-        }
-        if (url === PZ.drop.checkinUrl()) {
-          env.checkins.push(JSON.parse(opts.body));
-          if (env.checkinStatus !== 200) return reply(env.checkinStatus, { error: "auth" });
-          return reply(200, env.checkinBody);
-        }
-        if (url === PZ.drop.healthUrl(creds)) return reply(200, { rev: env.rev, at: "", tail: [] });
-        throw new Error("unexpected url " + url);
-      });
+          if (url === PZ.drop.checkinUrl()) {
+            env.checkins.push(JSON.parse(opts.body));
+            if (env.checkinStatus !== 200) return reply(env.checkinStatus, { error: "auth" });
+            return reply(200, env.checkinBody);
+          }
+          if (url === PZ.drop.healthUrl(creds)) return reply(200, { rev: env.rev, at: "", tail: [] });
+          throw new Error("unexpected url " + url);
+        });
 
-      // pull merges, never dirties, never pushes
-      let st = await PZ.sync.tick("test-pull", { planId: DP });
-      const pulledPlan = S().loadPlan(DP);
-      check("sync pull merges remote", pulledPlan && pulledPlan.events.some((e) => e.id === "gdrop.1"));
-      check("sync pull never dirty", st.state === "idle" && st.dirty === false && env.puts.length === 0);
-      check(
-        "sync pull uses no-store",
-        env.fetchOpts.every((f) => !f.opts || f.opts.method || f.opts.cache === "no-store"),
-      );
-      // Every request must carry the bearer token — the server refuses
-      // anonymous reads, so a missing header is a silent 401 in production.
-      check(
-        "every request is authenticated",
-        env.fetchOpts.every(
-          (f) => f.opts && f.opts.headers && f.opts.headers.Authorization === "Bearer " + creds.token,
-        ),
-      );
-      // The report must describe the plan that was ASKED about — c.html renders
-      // its status line straight from this value while another plan is active.
-      check(
-        "sync tick reports the requested plan, not the active one",
-        S().loadPlanIndex().active !== DP && deepEqual(st, PZ.sync.status(DP)) && st.state === "idle",
-      );
+        // pull merges, never dirties, never pushes
+        let st = await PZ.sync.tick("test-pull", { planId: DP });
+        const pulledPlan = S().loadPlan(DP);
+        check("sync pull merges remote", pulledPlan && pulledPlan.events.some((e) => e.id === "gdrop.1"));
+        check("sync pull never dirty", st.state === "idle" && st.dirty === false && env.puts.length === 0);
+        check(
+          "sync pull uses no-store",
+          env.fetchOpts.every((f) => !f.opts || f.opts.method || f.opts.cache === "no-store"),
+        );
+        // Every request must carry the bearer token — the server refuses
+        // anonymous reads, so a missing header is a silent 401 in production.
+        check(
+          "every request is authenticated",
+          env.fetchOpts.every(
+            (f) => f.opts && f.opts.headers && f.opts.headers.Authorization === "Bearer " + creds.token,
+          ),
+        );
+        // The report must describe the plan that was ASKED about — c.html renders
+        // its status line straight from this value while another plan is active.
+        check(
+          "sync tick reports the requested plan, not the active one",
+          S().loadPlanIndex().active !== DP && deepEqual(st, PZ.sync.status(DP)) && st.state === "idle",
+        );
 
-      // mutation → PUT with the right body shape; dirty clears on the answer
-      PZ.sync.markDirty(DP);
-      st = await PZ.sync.tick("test-push", { planId: DP });
-      check("sync push writes once", env.puts.length === 1 && st.state === "idle" && st.dirty === false);
-      const put = env.puts[0] || {};
-      check(
-        "put body shape",
-        /^[a-z2-9]{8}$/.test(put.nonce) &&
-          put.baseRev === 5 &&
-          typeof put.payload === "string" &&
-          put.payload.length > 0 &&
-          // the token belongs in the header, not the body
-          put.token === undefined,
-      );
-      // The push is UNCAPPED: overwrite semantics make a shrunk payload a
-      // data-loss bug, so the budget is a refusal threshold, not a target.
-      check("push budget matches the server cap", PZ.sync.PUSH_BUDGET_CHARS === 64 * 1024);
+        // mutation → PUT with the right body shape; dirty clears on the answer
+        PZ.sync.markDirty(DP);
+        st = await PZ.sync.tick("test-push", { planId: DP });
+        check("sync push writes once", env.puts.length === 1 && st.state === "idle" && st.dirty === false);
+        const put = env.puts[0] || {};
+        check(
+          "put body shape",
+          /^[a-z2-9]{8}$/.test(put.nonce) &&
+            put.baseRev === 5 &&
+            typeof put.payload === "string" &&
+            put.payload.length > 0 &&
+            // the token belongs in the header, not the body
+            put.token === undefined,
+        );
+        // The push is UNCAPPED: overwrite semantics make a shrunk payload a
+        // data-loss bug, so the budget is a refusal threshold, not a target.
+        check("push budget matches the server cap", PZ.sync.PUSH_BUDGET_CHARS === 64 * 1024);
 
-      // 409 → pull (which merges the other side in), push again. Converges
-      // inside ONE tick: mergePlans lives on the client, so the server never
-      // has to reconcile anything.
-      env.puts.length = 0;
-      env.stateBody = await makeStateBody(remotePlan, 20);
-      env.conflictsLeft = 1;
-      PZ.sync.markDirty(DP);
-      st = await PZ.sync.tick("test-conflict", { planId: DP });
-      check(
-        "sync resolves a conflict by re-pulling",
-        env.puts.length === 2 &&
-          env.puts[1].baseRev === 20 &&
+        // 409 → pull (which merges the other side in), push again. Converges
+        // inside ONE tick: mergePlans lives on the client, so the server never
+        // has to reconcile anything.
+        env.puts.length = 0;
+        env.stateBody = await makeStateBody(remotePlan, 20);
+        env.conflictsLeft = 1;
+        PZ.sync.markDirty(DP);
+        st = await PZ.sync.tick("test-conflict", { planId: DP });
+        check(
+          "sync resolves a conflict by re-pulling",
+          env.puts.length === 2 &&
+            env.puts[1].baseRev === 20 &&
+            st.dirty === false &&
+            st.state === "idle",
+        );
+
+        // a PERSISTENT conflict must surface, not loop
+        env.puts.length = 0;
+        env.conflictsLeft = 99;
+        PZ.sync.markDirty(DP);
+        st = await PZ.sync.tick("test-conflict-hard", { planId: DP });
+        check(
+          "persistent conflict surfaces",
+          st.state === "error" && st.error === "conflict" && env.puts.length === 2 && st.dirty === true,
+        );
+        env.conflictsLeft = 0;
+
+        // A replay answer confirms an EARLIER attempt, not this content: it
+        // must trigger a fresh push with a new nonce, never a false "synchron".
+        env.puts.length = 0;
+        env.replaysLeft = 1;
+        PZ.sync.markDirty(DP);
+        st = await PZ.sync.tick("test-replay", { planId: DP });
+        check(
+          "replay answer triggers a fresh push, not a false confirm",
+          env.puts.length === 2 &&
+            env.puts[0].nonce !== env.puts[1].nonce &&
+            st.dirty === false &&
+            st.state === "idle",
+        );
+
+        // cold start: no state on the server yet → the first push creates it
+        H().safeLocalStorageRemoveItem(S().K.dropstate(DP));
+        env.puts.length = 0;
+        env.stateStatus = 404;
+        env.stateError = "no-state";
+        PZ.sync.markDirty(DP);
+        st = await PZ.sync.tick("test-cold", { planId: DP });
+        check(
+          "cold start pushes at baseRev 0",
+          env.puts.length === 1 && env.puts[0].baseRev === 0 && st.state === "idle",
+        );
+        // …but a server that does not host this plan is an error, not a cold start
+        env.stateError = "unknown-plan";
+        st = await PZ.sync.tick("test-unknown-plan", { planId: DP });
+        check("unknown plan → notfound", st.state === "error" && st.error === "notfound");
+        env.stateStatus = 200;
+
+        // rev monotony + stale detection
+        H().safeLocalStorageRemoveItem(S().K.dropstate(DP));
+        env.stateBody = await makeStateBody(remotePlan, 9);
+        await PZ.sync.tick("t", { planId: DP });
+        const recBefore = H().safeParse(H().safeLocalStorageGetItem(S().K.dropstate(DP)));
+        env.stateBody = await makeStateBody(remotePlan, 3); // older than known rev
+        await PZ.sync.tick("t", { planId: DP });
+        await PZ.sync.tick("t", { planId: DP });
+        st = await PZ.sync.tick("t", { planId: DP });
+        const recAfter = H().safeParse(H().safeLocalStorageGetItem(S().K.dropstate(DP)));
+        check(
+          "sync rev never sinks + stale hint",
+          recBefore && recAfter && recAfter.lastRev >= recBefore.lastRev && st.stale === true,
+        );
+
+        // error mapping: keymismatch, auth, scope, offline-queue
+        H().safeLocalStorageRemoveItem(S().K.dropstate(DP));
+        const wrongKey = await PZ.dropcrypto.importStateKey(new Uint8Array(32).map((_, i) => i + 1));
+        env.stateBody = await makeStateBody(remotePlan, 7, wrongKey);
+        st = await PZ.sync.tick("t", { planId: DP });
+        check("sync wrong key → keymismatch", st.state === "error" && st.error === "keymismatch");
+        env.stateBody = await makeStateBody(remotePlan, 7);
+        env.netFail = true;
+        st = await PZ.sync.tick("t", { planId: DP });
+        check("sync net fail clean → error", st.state === "error" && st.error === "net");
+        PZ.sync.markDirty(DP);
+        st = await PZ.sync.tick("t", { planId: DP });
+        check("sync net fail dirty → queued", st.state === "queued");
+        env.netFail = false;
+        env.stateStatus = 401;
+        st = await PZ.sync.tick("t", { planId: DP });
+        check("sync 401 → authfail", st.state === "error" && st.error === "authfail");
+        // 403 = a check-in-scoped token pasted into the app: a DIFFERENT cause
+        // than a revoked token, and the copy has to say so.
+        env.stateStatus = 403;
+        st = await PZ.sync.tick("t", { planId: DP });
+        check("sync 403 → forbidden", st.state === "error" && st.error === "forbidden");
+        env.stateStatus = 200;
+
+        // --- a share-link / file import on a CONNECTED plan must reach the
+        // server: a user action, not a pull (the server never sent these
+        // events, so no ping-pong). Before, imported history stayed on this
+        // device forever while the badge showed a healthy server. ---
+        H().safeLocalStorageRemoveItem(S().K.dropstate(DP));
+        env.puts.length = 0;
+        st = await PZ.sync.tick("test-import-base", { planId: DP });
+        const activeBefore = S().loadPlanIndex().active;
+        const importSrc = mkPlan({
+          planId: DP,
+          areas: [mkArea("da01", "Küche", 7)],
+          people: [mkPerson("dp01", "Testy")],
+          events: [mkEvent("gimp.1", "da01", "dp01", 29785550)],
+        });
+        const imp = PZ.sync.importPlan(importSrc, fakeNow);
+        check(
+          "importPlan merges and reports the news",
           st.dirty === false &&
-          st.state === "idle",
-      );
+            !!imp &&
+            imp.knownBefore === true &&
+            imp.summary.newEvents === 1 &&
+            S().loadPlan(DP).events.some((e) => e.id === "gimp.1"),
+        );
+        check("import on a connected plan marks dirty", PZ.sync.status(DP).dirty === true);
+        st = await PZ.sync.tick("test-import-push", { planId: DP });
+        const importPut = env.puts[0];
+        const importPushed = importPut
+          ? await PZ.share.decodeStatePayload(H().base64UrlDecodeBytes(importPut.payload))
+          : null;
+        check(
+          "import is pushed with the imported event",
+          env.puts.length === 1 &&
+            !!importPushed &&
+            importPushed.events.some((e) => e.id === "gimp.1") &&
+            st.state === "idle" &&
+            st.dirty === false,
+        );
+        const impAgain = PZ.sync.importPlan(importSrc, fakeNow);
+        check(
+          "import without news stays clean",
+          !!impAgain && impAgain.summary.newEvents === 0 && PZ.sync.status(DP).dirty === false,
+        );
+        // A rename-only link is news too: the name is plan-level, no record
+        // counter sees it — without changedName it never reached the server.
+        const renamedSrc = mkPlan({
+          planId: DP,
+          name: "Neues Zuhause",
+          updatedAt: 1700000001,
+          areas: [mkArea("da01", "Küche", 7)],
+          people: [mkPerson("dp01", "Testy")],
+        });
+        const impRename = PZ.sync.importPlan(renamedSrc, fakeNow);
+        check(
+          "rename-only import counts as news",
+          !!impRename &&
+            impRename.summary.changedName === 1 &&
+            impRename.summary.newEvents === 0 &&
+            S().loadPlan(DP).name === "Neues Zuhause" &&
+            PZ.sync.status(DP).dirty === true,
+        );
+        // Undo is honest only until the import reached the server: the debounce
+        // fires after 1.5 s, the undo toast lives 8 s.
+        check("import undo allowed before the push", PZ.sync.canUndoImport(DP) === true);
+        st = await PZ.sync.tick("test-rename-push", { planId: DP });
+        check(
+          "import undo refused once pushed",
+          st.state === "idle" && st.dirty === false && PZ.sync.canUndoImport(DP) === false,
+        );
+        // importPlan activates the plan like a link open does — put the
+        // stand-in back so the rest of the suite keeps its "not active" premise.
+        const idxAfterImport = S().loadPlanIndex();
+        idxAfterImport.active = activeBefore;
+        S().savePlanIndex(idxAfterImport);
 
-      // a PERSISTENT conflict must surface, not loop
-      env.puts.length = 0;
-      env.conflictsLeft = 99;
-      PZ.sync.markDirty(DP);
-      st = await PZ.sync.tick("test-conflict-hard", { planId: DP });
-      check(
-        "persistent conflict surfaces",
-        st.state === "error" && st.error === "conflict" && env.puts.length === 2 && st.dirty === true,
-      );
-      env.conflictsLeft = 0;
+        // --- refusals are not "queued": a 4xx with a named reason is
+        // deterministic, a retry cannot fix it. 429 (the rate brake) can. ---
+        env.puts.length = 0;
+        env.putStatus = 422;
+        env.putError = "events-dropped";
+        PZ.sync.markDirty(DP);
+        st = await PZ.sync.tick("test-rejected", { planId: DP });
+        check(
+          "refused push → rejected, not queued",
+          st.state === "error" &&
+            st.error === "rejected" &&
+            st.reason === "events-dropped" &&
+            st.dirty === true &&
+            env.puts.length === 1,
+        );
+        env.putError = "payload-size";
+        st = await PZ.sync.tick("test-toolarge", { planId: DP });
+        check("payload-size refusal → toolarge", st.state === "error" && st.error === "toolarge");
+        env.putStatus = 429;
+        env.putError = "rate";
+        st = await PZ.sync.tick("test-rate", { planId: DP });
+        check("rate brake while dirty → queued", st.state === "queued" && st.dirty === true);
+        env.putStatus = 200;
+        env.putError = "";
+        st = await PZ.sync.tick("test-drain", { planId: DP });
+        check("queued work drains once the server accepts", st.state === "idle" && st.dirty === false);
 
-      // A replay answer confirms an EARLIER attempt, not this content: it
-      // must trigger a fresh push with a new nonce, never a false "synchron".
-      env.puts.length = 0;
-      env.replaysLeft = 1;
-      PZ.sync.markDirty(DP);
-      st = await PZ.sync.tick("test-replay", { planId: DP });
-      check(
-        "replay answer triggers a fresh push, not a false confirm",
-        env.puts.length === 2 &&
-          env.puts[0].nonce !== env.puts[1].nonce &&
-          st.dirty === false &&
-          st.state === "idle",
-      );
+        // k2 confirm flow: one-shot check-in, confirmed by the RESPONSE — no
+        // local plan involved, the stub records the exact wire body.
+        env.netFail = false;
+        const k2res = await PZ.sync.checkinDispatch(parsedK2, "da2k");
+        const k2body = env.checkins[0] || {};
+        check(
+          "checkin body shape",
+          env.checkins.length === 1 &&
+            k2body.planId === DP &&
+            k2body.personId === "scp1" &&
+            k2body.areaId === "da2k" &&
+            /^[a-z2-9]{8}$/.test(k2body.nonce) &&
+            k2body.token === undefined,
+        );
+        check("checkin confirms synchronously", k2res.minted === true && k2res.rev === 6);
+        env.checkinBody = { minted: false, replay: false, rev: 6 };
+        const k2again = await PZ.sync.checkinDispatch(parsedK2, "da2k");
+        check("idempotent checkin reports minted:false", k2again.minted === false);
+        env.checkinStatus = 403;
+        await throws("checkin 403 → forbidden", () => PZ.sync.checkinDispatch(parsedK2, "da2k"));
+        env.checkinStatus = 401;
+        await throws("checkin 401 → authfail", () => PZ.sync.checkinDispatch(parsedK2, "da2k"));
+        env.checkinStatus = 200;
 
-      // cold start: no state on the server yet → the first push creates it
-      H().safeLocalStorageRemoveItem(S().K.dropstate(DP));
-      env.puts.length = 0;
-      env.stateStatus = 404;
-      env.stateError = "no-state";
-      PZ.sync.markDirty(DP);
-      st = await PZ.sync.tick("test-cold", { planId: DP });
-      check(
-        "cold start pushes at baseRev 0",
-        env.puts.length === 1 && env.puts[0].baseRev === 0 && st.state === "idle",
-      );
-      // …but a server that does not host this plan is an error, not a cold start
-      env.stateError = "unknown-plan";
-      st = await PZ.sync.tick("test-unknown-plan", { planId: DP });
-      check("unknown plan → notfound", st.state === "error" && st.error === "notfound");
-      env.stateStatus = 200;
+        // no creds → off
+        PZ.sync._reset();
+        PZ.drop.disconnect(DP);
+        st = await PZ.sync.tick("t", { planId: DP });
+        check("sync without creds → off", st.state === "off");
+        check("import undo always allowed without a server", PZ.sync.canUndoImport(DP) === true);
 
-      // rev monotony + stale detection
-      H().safeLocalStorageRemoveItem(S().K.dropstate(DP));
-      env.stateBody = await makeStateBody(remotePlan, 9);
-      await PZ.sync.tick("t", { planId: DP });
-      const recBefore = H().safeParse(H().safeLocalStorageGetItem(S().K.dropstate(DP)));
-      env.stateBody = await makeStateBody(remotePlan, 3); // older than known rev
-      await PZ.sync.tick("t", { planId: DP });
-      await PZ.sync.tick("t", { planId: DP });
-      st = await PZ.sync.tick("t", { planId: DP });
-      const recAfter = H().safeParse(H().safeLocalStorageGetItem(S().K.dropstate(DP)));
-      check(
-        "sync rev never sinks + stale hint",
-        recBefore && recAfter && recAfter.lastRev >= recBefore.lastRev && st.stale === true,
-      );
-
-      // error mapping: keymismatch, auth, scope, offline-queue
-      H().safeLocalStorageRemoveItem(S().K.dropstate(DP));
-      const wrongKey = await PZ.dropcrypto.importStateKey(new Uint8Array(32).map((_, i) => i + 1));
-      env.stateBody = await makeStateBody(remotePlan, 7, wrongKey);
-      st = await PZ.sync.tick("t", { planId: DP });
-      check("sync wrong key → keymismatch", st.state === "error" && st.error === "keymismatch");
-      env.stateBody = await makeStateBody(remotePlan, 7);
-      env.netFail = true;
-      st = await PZ.sync.tick("t", { planId: DP });
-      check("sync net fail clean → error", st.state === "error" && st.error === "net");
-      PZ.sync.markDirty(DP);
-      st = await PZ.sync.tick("t", { planId: DP });
-      check("sync net fail dirty → queued", st.state === "queued");
-      env.netFail = false;
-      env.stateStatus = 401;
-      st = await PZ.sync.tick("t", { planId: DP });
-      check("sync 401 → authfail", st.state === "error" && st.error === "authfail");
-      // 403 = a check-in-scoped token pasted into the app: a DIFFERENT cause
-      // than a revoked token, and the copy has to say so.
-      env.stateStatus = 403;
-      st = await PZ.sync.tick("t", { planId: DP });
-      check("sync 403 → forbidden", st.state === "error" && st.error === "forbidden");
-      env.stateStatus = 200;
-
-      // --- a share-link / file import on a CONNECTED plan must reach the
-      // server: a user action, not a pull (the server never sent these
-      // events, so no ping-pong). Before, imported history stayed on this
-      // device forever while the badge showed a healthy server. ---
-      H().safeLocalStorageRemoveItem(S().K.dropstate(DP));
-      env.puts.length = 0;
-      st = await PZ.sync.tick("test-import-base", { planId: DP });
-      const activeBefore = S().loadPlanIndex().active;
-      const importSrc = mkPlan({
-        planId: DP,
-        areas: [mkArea("da01", "Küche", 7)],
-        people: [mkPerson("dp01", "Testy")],
-        events: [mkEvent("gimp.1", "da01", "dp01", 29785550)],
-      });
-      const imp = PZ.sync.importPlan(importSrc, fakeNow);
-      check(
-        "importPlan merges and reports the news",
-        st.dirty === false &&
-          !!imp &&
-          imp.knownBefore === true &&
-          imp.summary.newEvents === 1 &&
-          S().loadPlan(DP).events.some((e) => e.id === "gimp.1"),
-      );
-      check("import on a connected plan marks dirty", PZ.sync.status(DP).dirty === true);
-      st = await PZ.sync.tick("test-import-push", { planId: DP });
-      const importPut = env.puts[0];
-      const importPushed = importPut
-        ? await PZ.share.decodeStatePayload(H().base64UrlDecodeBytes(importPut.payload))
-        : null;
-      check(
-        "import is pushed with the imported event",
-        env.puts.length === 1 &&
-          !!importPushed &&
-          importPushed.events.some((e) => e.id === "gimp.1") &&
-          st.state === "idle" &&
-          st.dirty === false,
-      );
-      const impAgain = PZ.sync.importPlan(importSrc, fakeNow);
-      check(
-        "import without news stays clean",
-        !!impAgain && impAgain.summary.newEvents === 0 && PZ.sync.status(DP).dirty === false,
-      );
-      // A rename-only link is news too: the name is plan-level, no record
-      // counter sees it — without changedName it never reached the server.
-      const renamedSrc = mkPlan({
-        planId: DP,
-        name: "Neues Zuhause",
-        updatedAt: 1700000001,
-        areas: [mkArea("da01", "Küche", 7)],
-        people: [mkPerson("dp01", "Testy")],
-      });
-      const impRename = PZ.sync.importPlan(renamedSrc, fakeNow);
-      check(
-        "rename-only import counts as news",
-        !!impRename &&
-          impRename.summary.changedName === 1 &&
-          impRename.summary.newEvents === 0 &&
-          S().loadPlan(DP).name === "Neues Zuhause" &&
-          PZ.sync.status(DP).dirty === true,
-      );
-      // Undo is honest only until the import reached the server: the debounce
-      // fires after 1.5 s, the undo toast lives 8 s.
-      check("import undo allowed before the push", PZ.sync.canUndoImport(DP) === true);
-      st = await PZ.sync.tick("test-rename-push", { planId: DP });
-      check(
-        "import undo refused once pushed",
-        st.state === "idle" && st.dirty === false && PZ.sync.canUndoImport(DP) === false,
-      );
-      // importPlan activates the plan like a link open does — put the
-      // stand-in back so the rest of the suite keeps its "not active" premise.
-      const idxAfterImport = S().loadPlanIndex();
-      idxAfterImport.active = activeBefore;
-      S().savePlanIndex(idxAfterImport);
-
-      // --- refusals are not "queued": a 4xx with a named reason is
-      // deterministic, a retry cannot fix it. 429 (the rate brake) can. ---
-      env.puts.length = 0;
-      env.putStatus = 422;
-      env.putError = "events-dropped";
-      PZ.sync.markDirty(DP);
-      st = await PZ.sync.tick("test-rejected", { planId: DP });
-      check(
-        "refused push → rejected, not queued",
-        st.state === "error" &&
-          st.error === "rejected" &&
-          st.reason === "events-dropped" &&
-          st.dirty === true &&
-          env.puts.length === 1,
-      );
-      env.putError = "payload-size";
-      st = await PZ.sync.tick("test-toolarge", { planId: DP });
-      check("payload-size refusal → toolarge", st.state === "error" && st.error === "toolarge");
-      env.putStatus = 429;
-      env.putError = "rate";
-      st = await PZ.sync.tick("test-rate", { planId: DP });
-      check("rate brake while dirty → queued", st.state === "queued" && st.dirty === true);
-      env.putStatus = 200;
-      env.putError = "";
-      st = await PZ.sync.tick("test-drain", { planId: DP });
-      check("queued work drains once the server accepts", st.state === "idle" && st.dirty === false);
-
-      // k2 confirm flow: one-shot check-in, confirmed by the RESPONSE — no
-      // local plan involved, the stub records the exact wire body.
-      env.netFail = false;
-      const k2res = await PZ.sync.checkinDispatch(parsedK2, "da2k");
-      const k2body = env.checkins[0] || {};
-      check(
-        "checkin body shape",
-        env.checkins.length === 1 &&
-          k2body.planId === DP &&
-          k2body.personId === "scp1" &&
-          k2body.areaId === "da2k" &&
-          /^[a-z2-9]{8}$/.test(k2body.nonce) &&
-          k2body.token === undefined,
-      );
-      check("checkin confirms synchronously", k2res.minted === true && k2res.rev === 6);
-      env.checkinBody = { minted: false, replay: false, rev: 6 };
-      const k2again = await PZ.sync.checkinDispatch(parsedK2, "da2k");
-      check("idempotent checkin reports minted:false", k2again.minted === false);
-      env.checkinStatus = 403;
-      await throws("checkin 403 → forbidden", () => PZ.sync.checkinDispatch(parsedK2, "da2k"));
-      env.checkinStatus = 401;
-      await throws("checkin 401 → authfail", () => PZ.sync.checkinDispatch(parsedK2, "da2k"));
-      env.checkinStatus = 200;
-
-      // no creds → off
-      PZ.sync._reset();
-      PZ.drop.disconnect(DP);
-      st = await PZ.sync.tick("t", { planId: DP });
-      check("sync without creds → off", st.state === "off");
-      check("import undo always allowed without a server", PZ.sync.canUndoImport(DP) === true);
-
-      // restore reality
-      PZ.sync._setFetch((url, opts) => fetch(url, opts));
-      PZ.sync._setNow(null);
-      PZ.sync._reset();
-      PZ.sync.onChanged = onChangedBefore;
-      dropCleanup();
-      if (planIndexBefore === null) H().safeLocalStorageRemoveItem(S().K.plans);
-      else H().safeLocalStorageSetItem(S().K.plans, planIndexBefore);
+      } catch (e) {
+        // A crash here is ONE failed check, not the end of the suite: the ~100
+        // checks after this block still get to run and report.
+        check(`sync section threw: ${(e && e.message) || e}`, false);
+      } finally {
+        // restore reality
+        PZ.sync._setFetch((url, opts) => fetch(url, opts));
+        PZ.sync._setNow(null);
+        PZ.sync._reset();
+        PZ.sync.onChanged = onChangedBefore;
+        dropCleanup();
+        if (planIndexBefore === null) H().safeLocalStorageRemoveItem(S().K.plans);
+        else H().safeLocalStorageSetItem(S().K.plans, planIndexBefore);
+      }
     }
 
     // --- device identity: resolveMe ---

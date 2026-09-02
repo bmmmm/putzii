@@ -97,6 +97,17 @@ jobs:
         run: node server/tools/selfcheck.mjs .
         env:
           TZ: UTC
+      # With a real active plan seeded first the runner also asserts the
+      # suite gave that plan back untouched — the gate for Forgejo issue #1.
+      - name: app self-check, seeded active plan (Berlin)
+        run: node server/tools/selfcheck.mjs .
+        env:
+          PUTZII_SEED_ACTIVE: "1"
+      - name: app self-check, seeded active plan (UTC)
+        run: node server/tools/selfcheck.mjs .
+        env:
+          PUTZII_SEED_ACTIVE: "1"
+          TZ: UTC
 
   # Guard: an APP_SHELL asset change without a service-worker VERSION bump
   # would leave installed clients on the stale shell forever. The script

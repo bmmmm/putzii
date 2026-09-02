@@ -65,6 +65,24 @@
       if (!cond) errors.push(name);
     }
 
+    // A section guarded on a module skips itself when that module was not
+    // loaded — and a silent skip is how the suite came to run 12 checks only
+    // in the browser and 7 only headless without anyone noticing. Modules are
+    // checked-in source files, present in BOTH environments; there is no
+    // legitimate reason for one to be missing. So every guard records itself
+    // and is asserted at the end through the ordinary check(), which puts an
+    // unexpected skip into `errors` and flips result.ok — no new wiring, and
+    // both consumers (the runner's exit code, the browser console) print it.
+    //
+    // (Deliberately NOT a separate list of expected sections: that reproduces
+    // the bug one level up — whoever adds a section forgets the registry
+    // entry just as the module list was forgotten here.)
+    const sections = [];
+    function section(name, cond) {
+      sections.push({ name, ran: !!cond });
+      return !!cond;
+    }
+
     async function throws(name, fn, code) {
       checks++;
       try {
@@ -462,7 +480,7 @@
     check("file rejects junk", PZ.share.parseFile('{"format":"x"}') === null);
 
     // --- hash classification (router on index, local subset on c.html) ---
-    if (PZ.router) {
+    if (section("router", PZ.router)) {
       check("classify route", PZ.router.classifyHash("#verlauf").kind === "route");
       check("classify share", PZ.router.classifyHash("#p1.abc").kind === "share");
       check("classify checkin", deepEqual(PZ.router.classifyHash("#c1.AbC123-_.k3f9"), { kind: "checkin", planId: "AbC123-_", areaId: "k3f9" }));
@@ -481,7 +499,12 @@
 
     // --- server sync: crypto, d2/k2 links, state payload, sync machine ---
     // Runs entirely against a fetch stub — the suite needs NO network.
-    if (PZ.drop && PZ.sync && PZ.dropcrypto && typeof crypto !== "undefined" && crypto.subtle) {
+    if (
+      section(
+        "server sync",
+        PZ.drop && PZ.sync && PZ.dropcrypto && typeof crypto !== "undefined" && crypto.subtle,
+      )
+    ) {
       const DP = "SELFDRP0";
       const FOREIGN = "SELFACT0"; // stands in for the user's real active plan
       const dropCleanup = () => {
@@ -1054,7 +1077,7 @@
     // what does the household actually read? The predicate lives in sync.js
     // (testable headlessly), the German words in ui-share.js — the runner
     // loads that module for exactly this section. ---
-    if (PZ.sync && PZ.sync.dropSyncCanRetry) {
+    if (section("retry predicate", PZ.sync && PZ.sync.dropSyncCanRetry)) {
       const R = PZ.sync.dropSyncCanRetry;
       check("retry: no state at all → nothing to press", R(null) === false);
       check("retry: no server → button gone", R({ state: "off" }) === false);
@@ -1070,7 +1093,7 @@
       check("retry: an unknown error kind is not offered either", R({ state: "error", error: "zzz" }) === false);
     }
 
-    if (PZ.uiShare && PZ.uiShare.dropStatusText) {
+    if (section("share copy", PZ.uiShare && PZ.uiShare.dropStatusText)) {
       const T = PZ.uiShare.dropStatusText;
       const NOW = 1756800000000;
       check(
@@ -1123,7 +1146,7 @@
     }
 
     // c.html's server line under a fresh check-in.
-    if (PZ.uiCheckin && PZ.uiCheckin.dropLineText) {
+    if (section("checkin copy", PZ.uiCheckin && PZ.uiCheckin.dropLineText)) {
       const L = PZ.uiCheckin.dropLineText;
       // The regression: both in-flight states fell through every branch and
       // left the placeholder standing after the sync had finished.
@@ -1169,7 +1192,7 @@
     }
 
     // --- one-tap check-in: instantCheckin minting path ---
-    if (PZ.uiViews && PZ.uiViews.instantCheckin) {
+    if (section("instant checkin", PZ.uiViews && PZ.uiViews.instantCheckin)) {
       const IC_NOW = 1799999999999; // fixed clock — model takes nowMs everywhere
       const area = mkArea("scar1", "Küche", 7);
       const mkFresh = () =>
@@ -1231,6 +1254,9 @@
       );
       S().setMe(SC_PLAN, "");
     }
+
+    // Every guarded section must actually have run — see section() above.
+    for (const s of sections) check(`section ran: ${s.name}`, s.ran);
 
     cleanup();
     const result = { ok: errors.length === 0, checks, errors };

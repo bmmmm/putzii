@@ -74,6 +74,10 @@ const modules = [
   // Same reason. It boots itself only where there IS a document, so in this
   // realm it just defines dropLineText.
   "ui-checkin.js",
+  // The one-tap check-in minting path. Its module scope needs no stub either
+  // — it was simply never listed, which left 12 checks browser-only in
+  // silence. `section ran:` in the suite is what makes that loud now.
+  "ui-views.js",
   "self-check.js",
 ];
 for (const f of modules) {

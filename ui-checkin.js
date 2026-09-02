@@ -590,9 +590,16 @@
 
   PZ.uiCheckin = { boot, dropLineText };
 
-  // Guarded so the headless self-check runner can load this module for
-  // dropLineText; in a browser nothing changes.
-  if (typeof document !== "undefined") {
+  // The guard targets the ELEMENT, not just `document`: index.html loads
+  // this module too (so the suite can check dropLineText where CLAUDE.md
+  // locates the main run), and booting there would be actively harmful —
+  // a `#p1.` link would hit location.replace("index.html" + hash) and loop
+  // forever, and anything else would reach card() → root().textContent on
+  // null. #checkin-root exists on c.html and nowhere else, which is exactly
+  // the question "is this the check-in page?". It also means c.html's
+  // scripts must stay BELOW that element (they do, in <body>): moving them
+  // into <head> would leave it unparsed here and c.html would never boot.
+  if (typeof document !== "undefined" && document.getElementById("checkin-root")) {
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", boot);
     } else {

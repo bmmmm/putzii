@@ -200,6 +200,11 @@
     <script src="ui-manage.js"></script>
     <script src="ui-share.js"></script>
     <script src="app.js"></script>
+    <!-- Not for the page: c.html owns the check-in UI and this module boots
+         only where #checkin-root exists. It is here so the self-check can
+         assert its German copy in the BROWSER too — headless-only assertions
+         skip themselves exactly where the main run happens. -->
+    <script src="ui-checkin.js"></script>
     <script src="self-check.js"></script>
     <script src="sw-register.js"></script>
   </body>

@@ -11,6 +11,12 @@ updates:
       prefix: chore(deps)
     labels:
       - dependencies
+    cooldown:
+      default-days: 3
+    groups:
+      actions:
+        patterns:
+          - "*"
   - package-ecosystem: docker
     directory: /server
     schedule:
@@ -19,3 +25,5 @@ updates:
       prefix: chore(deps)
     labels:
       - dependencies
+    cooldown:
+      default-days: 3
